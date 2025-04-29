@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Sales History - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">Sales History</h1>
+    {# Optional: Link back to billing page #}
+    <a href="{{ url_for('billing.billing_page') }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+        Go to Billing
+    </a>
+</div>
+
+<form method="GET" action="{{ url_for('billing.list_sales') }}" class="bg-white p-4 rounded-lg shadow-md mb-6">
+    <div class="flex flex-wrap items-end gap-4">
+        <div class="flex-grow">
+            <label for="query" class="block text-sm font-medium text-gray-700 mb-1">Search Sales</label>
+            <input type="text" name="query" id="query" value="{{ query or '' }}" placeholder="Search by Sale ID, Customer Name, Payment Method..." class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3">
+        </div>
+        <div>
+            <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                Search
+            </button>
+            {% if query %}
+            <a href="{{ url_for('billing.list_sales') }}" class="ml-2 inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                Clear
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</form>
+
+<div class="bg-white shadow-md rounded-lg overflow-hidden">
+    <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+            <tr>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sale ID</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date & Time</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Method</th>
+                {# Removed Sold By Header #}
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+            </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+            {% if sales %}
+                {% for sale in sales %}
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ sale.id }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ sale.sale_timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ sale.customer.name if sale.customer else 'Walk-in' }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">{{ sale.items.count() }}</td> {# Display count of items #}
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">₹{{ "%.2f"|format(sale.final_amount) }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ sale.payment_method }}</td>
+                    {# Removed Sold By Data Cell #}
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        {# Download Invoice Button #}
+                        <a href="{{ url_for('billing.download_invoice_pdf', sale_id=sale.id) }}" target="_blank" class="text-indigo-600 hover:text-indigo-900 mr-3" title="Download PDF Invoice">
+                            Invoice
+                        </a>
+                        {# ** UPDATED: View Link points to new route ** #}
+                        <a href="{{ url_for('billing.view_sale', sale_id=sale.id) }}" class="text-green-600 hover:text-green-900" title="View Sale Details">
+                            View
+                        </a>
+                        {# Add Edit link later if implementing that feature #}
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="7" class="px-6 py-4 text-center text-sm text-gray-500"> {# Decreased colspan #}
+                        {% if query %}
+                            No sales found matching your search criteria.
+                        {% else %}
+                            No sales recorded yet.
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+{% if pagination and pagination.pages > 1 %}
+<nav class="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6 mt-4 rounded-lg shadow-md" aria-label="Pagination">
+    <div class="hidden sm:block">
+        <p class="text-sm text-gray-700">
+            Showing
+            <span class="font-medium">{{ pagination.first }}</span>
+            to
+            <span class="font-medium">{{ pagination.last }}</span>
+            of
+            <span class="font-medium">{{ pagination.total }}</span>
+            results
+        </p>
+    </div>
+    <div class="flex-1 flex justify-between sm:justify-end">
+        {% if pagination.has_prev %}
+            <a href="{{ url_for('billing.list_sales', page=pagination.prev_num, query=query) }}" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                Previous
+            </a>
+        {% else %}
+            <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-400 bg-gray-50 cursor-not-allowed">
+                Previous
+            </span>
+        {% endif %}
+        {% if pagination.has_next %}
+            <a href="{{ url_for('billing.list_sales', page=pagination.next_num, query=query) }}" class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                Next
+            </a>
+        {% else %}
+             <span class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-400 bg-gray-50 cursor-not-allowed">
+                Next
+            </span>
+        {% endif %}
+    </div>
+</nav>
+{% endif %}
+
+{% endblock %}

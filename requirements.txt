@@ -1,0 +1,14 @@
+Flask>=2.0
+Flask-SQLAlchemy>=2.5
+Flask-Migrate>=3.0     # Optional, but good for DB schema changes
+Flask-Login>=0.5
+Flask-WTF>=1.0
+WTForms[email]
+python-dotenv>=0.15
+python-barcode>=0.14   # For generating barcode images
+reportlab>=3.6         # For generating PDFs (stickers, invoices)
+bcrypt>=3.2            # For password hashing
+gunicorn>=20.0         # WSGI server for deployment (optional for Render)
+
+# Add mysqlclient or psycopg2 if/when switching to MySQL/PostgreSQL
+# mysqlclient>=2.0

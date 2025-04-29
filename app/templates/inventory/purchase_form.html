@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+
+{% block title %}Record Purchase - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-md">
+    <h1 class="text-2xl font-bold text-gray-800 mb-6">Record New Purchase</h1>
+
+    {# Form for header details - handled by Flask-WTF (optional here, could be pure JS) #}
+    <form id="purchase-header-form" method="POST" action="{{ url_for('inventory.add_purchase') }}" novalidate>
+         {# CSRF token needed if submitting header via Flask-WTF form #}
+         {{ form.hidden_tag() if form }}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 border-b border-gray-200 pb-6">
+            {# Supplier Name #}
+            <div>
+                <label for="supplier_name" class="block text-sm font-medium text-gray-700 mb-1">Supplier Name</label>
+                <input type="text" id="supplier_name" name="supplier_name" class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3" placeholder="Optional">
+            </div>
+
+            {# Invoice Number #}
+            <div>
+                <label for="invoice_number" class="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
+                <input type="text" id="invoice_number" name="invoice_number" class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3" placeholder="Optional">
+            </div>
+
+             {# Notes #}
+             <div class="md:col-span-2">
+                <label for="notes" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <textarea id="notes" name="notes" rows="2" class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border border-gray-300 rounded-md py-2 px-3" placeholder="Optional notes about the purchase"></textarea>
+            </div>
+        </div>
+    </form> {# End of header form #}
+
+    {# Product Search and Add Section #}
+    <div class="mb-6">
+         <label for="product_search" class="block text-sm font-medium text-gray-700 mb-1">Search Product to Add</label>
+         <div class="flex gap-4">
+             <input type="text" id="product_search" class="flex-grow shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3" placeholder="Search by Name, Barcode, or SKU...">
+             {# Search results will be populated dynamically below or via a dropdown library #}
+         </div>
+         <div id="search-results" class="mt-2 border border-gray-300 rounded-md shadow-sm max-h-40 overflow-y-auto bg-white hidden">
+             {# Search results populated by JavaScript #}
+         </div>
+    </div>
+
+
+    {# Purchased Items Table #}
+    <h2 class="text-xl font-semibold text-gray-700 mb-4">Items Purchased</h2>
+    <div class="overflow-x-auto mb-6">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-2/5">Product</th>
+                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/5">Quantity</th>
+                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/5">Cost Price (per unit)</th>
+                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/5">Total</th>
+                    <th scope="col" class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                </tr>
+            </thead>
+            <tbody id="purchase-items-body" class="bg-white divide-y divide-gray-200">
+                {# Rows will be added here dynamically by JavaScript #}
+                <tr id="no-items-row">
+                    <td colspan="5" class="px-6 py-4 text-center text-sm text-gray-500 italic">No items added yet.</td>
+                </tr>
+            </tbody>
+            <tfoot class="bg-gray-50">
+                <tr>
+                    <td colspan="3" class="px-4 py-3 text-right text-sm font-medium text-gray-700 uppercase">Grand Total:</td>
+                    <td id="grand-total" class="px-4 py-3 text-left text-sm font-bold text-gray-900">₹0.00</td>
+                    <td></td> {# Empty cell for action column #}
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    {# Form Actions #}
+    <div class="mt-8 pt-5 border-t border-gray-200">
+        <div class="flex justify-end">
+            <a href="{{ url_for('inventory.list_purchases') }}" class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                Cancel
+            </a>
+            <button id="submit-purchase" type="button" class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" disabled>
+                Save Purchase
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+{# Add JavaScript for dynamic product search and table manipulation #}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const productSearchInput = document.getElementById('product_search');
+        const searchResultsDiv = document.getElementById('search-results');
+        const itemsTableBody = document.getElementById('purchase-items-body');
+        const noItemsRow = document.getElementById('no-items-row');
+        const grandTotalCell = document.getElementById('grand-total');
+        const submitButton = document.getElementById('submit-purchase');
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content'); // Get CSRF token if available
+
+        let purchaseItems = []; // Array to hold item data for submission
+        let searchTimeout;
+
+        // --- Utility: Format Currency ---
+        function formatCurrency(amount) {
+            return `₹${parseFloat(amount || 0).toFixed(2)}`;
+        }
+
+        // --- Product Search ---
+        productSearchInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            const query = this.value.trim();
+
+            if (query.length < 2) { // Start searching after 2 characters
+                searchResultsDiv.innerHTML = '';
+                searchResultsDiv.classList.add('hidden');
+                return;
+            }
+
+            searchResultsDiv.classList.remove('hidden');
+            searchResultsDiv.innerHTML = '<div class="p-2 text-sm text-gray-500">Searching...</div>';
+
+            searchTimeout = setTimeout(() => {
+                fetch(`{{ url_for('inventory.search_products_api') }}?q=${encodeURIComponent(query)}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        searchResultsDiv.innerHTML = ''; // Clear previous results
+                        if (data && data.length > 0) {
+                            data.forEach(product => {
+                                const div = document.createElement('div');
+                                div.classList.add('p-2', 'text-sm', 'cursor-pointer', 'hover:bg-gray-100');
+                                div.textContent = product.text; // Display text from API
+                                // Store needed data in dataset attributes
+                                div.dataset.productId = product.id;
+                                div.dataset.productName = product.name;
+                                div.dataset.purchasePrice = product.purchase_price || 0; // Default purchase price
+                                div.addEventListener('click', () => addProductToTable(product));
+                                searchResultsDiv.appendChild(div);
+                            });
+                        } else {
+                            searchResultsDiv.innerHTML = '<div class="p-2 text-sm text-gray-500">No products found.</div>';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching products:', error);
+                        searchResultsDiv.innerHTML = '<div class="p-2 text-sm text-red-500">Error searching.</div>';
+                    });
+            }, 300); // Debounce search requests
+        });
+
+        // Hide search results when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!productSearchInput.contains(event.target) && !searchResultsDiv.contains(event.target)) {
+                searchResultsDiv.classList.add('hidden');
+            }
+        });
+
+        // --- Add Product to Table ---
+        function addProductToTable(productData, initialQuantity = 1) { // Added initialQuantity
+            // Check if product already added
+            const productId = productData.product_id || productData.id; // Handle prefill vs search data
+            const productName = productData.name || productData.productName; // Handle prefill vs search data
+            const purchasePrice = parseFloat(productData.cost_price || productData.purchase_price || 0).toFixed(2);
+            const quantity = productData.quantity || initialQuantity; // Use prefill qty or default
+
+            const existingItem = purchaseItems.find(item => item.product_id === productId);
+            if (existingItem) {
+                 alert(`${productName} is already in the list.`);
+                clearProductSearch();
+                return;
+            }
+
+            if (noItemsRow) {
+                noItemsRow.style.display = 'none'; // Hide the "No items" row
+            }
+
+            const newRow = document.createElement('tr');
+            newRow.dataset.productId = productId;
+            newRow.innerHTML = `
+                <td class="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-900">${productName}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-sm">
+                    <input type="number" value="${quantity}" min="1" step="1" class="quantity-input shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-20 sm:text-sm border-gray-300 rounded-md py-1 px-2" data-product-id="${productId}">
+                </td>
+                <td class="px-4 py-2 whitespace-nowrap text-sm">
+                    <input type="number" value="${purchasePrice}" min="0" step="0.01" class="cost-price-input shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-24 sm:text-sm border-gray-300 rounded-md py-1 px-2" data-product-id="${productId}">
+                </td>
+                <td class="item-total px-4 py-2 whitespace-nowrap text-sm font-medium">${formatCurrency(quantity * purchasePrice)}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-center text-sm">
+                    <button type="button" class="remove-item-btn text-red-600 hover:text-red-800" data-product-id="${productId}">Remove</button>
+                </td>
+            `;
+            itemsTableBody.appendChild(newRow);
+
+            // Add item to our data array
+            purchaseItems.push({
+                product_id: productId,
+                quantity: parseInt(quantity),
+                cost_price: parseFloat(purchasePrice)
+            });
+
+            clearProductSearch();
+            updateGrandTotal();
+            updateSubmitButtonState();
+
+            // Add event listeners for the new row's inputs and button
+            newRow.querySelector('.quantity-input').addEventListener('input', handleInputChange);
+            newRow.querySelector('.cost-price-input').addEventListener('input', handleInputChange);
+            newRow.querySelector('.remove-item-btn').addEventListener('click', handleRemoveItem);
+        }
+
+        function clearProductSearch() {
+             productSearchInput.value = '';
+             searchResultsDiv.classList.add('hidden');
+             searchResultsDiv.innerHTML = '';
+        }
+
+        // --- Handle Input Changes in Table ---
+        function handleInputChange(event) {
+            const input = event.target;
+            const productId = parseInt(input.dataset.productId);
+            const row = input.closest('tr');
+            const quantityInput = row.querySelector('.quantity-input');
+            const costPriceInput = row.querySelector('.cost-price-input');
+
+            const quantity = parseInt(quantityInput.value) || 0;
+            const costPrice = parseFloat(costPriceInput.value) || 0;
+
+            // Update item total in the row
+            const itemTotalCell = row.querySelector('.item-total');
+            itemTotalCell.textContent = formatCurrency(quantity * costPrice);
+
+            // Update the item in the purchaseItems array
+            const itemIndex = purchaseItems.findIndex(item => item.product_id === productId);
+            if (itemIndex > -1) {
+                purchaseItems[itemIndex].quantity = quantity;
+                purchaseItems[itemIndex].cost_price = costPrice;
+            }
+
+            updateGrandTotal();
+        }
+
+        // --- Handle Item Removal ---
+        function handleRemoveItem(event) {
+            const button = event.target;
+            const productId = parseInt(button.dataset.productId);
+            const row = button.closest('tr');
+
+            // Remove from table
+            row.remove();
+
+            // Remove from purchaseItems array
+            purchaseItems = purchaseItems.filter(item => item.product_id !== productId);
+
+            // Show "No items" row if table is empty
+            if (itemsTableBody.children.length === 0 && noItemsRow) {
+                 noItemsRow.style.display = 'table-row';
+            }
+
+            updateGrandTotal();
+            updateSubmitButtonState();
+        }
+
+        // --- Update Grand Total ---
+        function updateGrandTotal() {
+            let total = 0;
+            purchaseItems.forEach(item => {
+                total += (item.quantity || 0) * (item.cost_price || 0);
+            });
+            grandTotalCell.textContent = formatCurrency(total);
+        }
+
+         // --- Enable/Disable Submit Button ---
+         function updateSubmitButtonState() {
+             submitButton.disabled = purchaseItems.length === 0;
+         }
+
+        // --- Submit Purchase ---
+        submitButton.addEventListener('click', function() {
+             // Validate items (ensure quantity > 0, cost >= 0)
+             for (const item of purchaseItems) {
+                 if (!item.quantity || item.quantity <= 0) {
+                     alert(`Quantity for item ID ${item.product_id} must be greater than 0.`);
+                     return;
+                 }
+                 if (item.cost_price === undefined || item.cost_price < 0) {
+                      alert(`Cost price for item ID ${item.product_id} cannot be negative.`);
+                      return;
+                 }
+             }
+
+            const purchaseData = {
+                supplier_name: document.getElementById('supplier_name').value.trim(),
+                invoice_number: document.getElementById('invoice_number').value.trim(),
+                notes: document.getElementById('notes').value.trim(),
+                items: purchaseItems // Send the current state
+            };
+
+            // Disable button to prevent double submission
+            submitButton.disabled = true;
+            submitButton.textContent = 'Saving...';
+
+            fetch("{{ url_for('inventory.add_purchase') }}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken // Send CSRF token if needed
+                },
+                body: JSON.stringify(purchaseData)
+            })
+            .then(response => {
+                 // Check if redirect happened OR if response indicates success/error
+                 if (response.ok) {
+                     // If backend redirects on success, fetch handles it transparently.
+                     // Check final URL to confirm redirect or assume success based on status.
+                     if (response.redirected) {
+                          window.location.href = response.url; // Follow redirect
+                          return; // Stop processing here
+                     }
+                     // If backend sends JSON success/error instead of redirect:
+                     return response.json().then(data => {
+                         if (data.status === 'success') { // Assuming backend sends status
+                             window.location.href = "{{ url_for('inventory.list_purchases') }}"; // Redirect manually
+                         } else {
+                             alert(`Error: ${data.message || 'Could not save purchase.'}`);
+                             submitButton.disabled = false; // Re-enable on error
+                             submitButton.textContent = 'Save Purchase';
+                         }
+                     });
+                 } else {
+                     // Handle non-OK responses (like 400, 500)
+                     response.json().then(errorData => {
+                          alert(`Error: ${errorData.message || 'Could not save purchase.'}`);
+                     }).catch(() => {
+                          alert('An error occurred while saving.');
+                     });
+                     submitButton.disabled = false; // Re-enable on error
+                     submitButton.textContent = 'Save Purchase';
+                 }
+            })
+            .catch(error => {
+                console.error('Error submitting purchase:', error);
+                alert('Network error or server issue prevented saving.');
+                 submitButton.disabled = false;
+                 submitButton.textContent = 'Save Purchase';
+            });
+        });
+
+        // --- Handle Pre-filled Data ---
+        // Get prefill data passed from the Flask template
+        const prefillData = {{ prefill_items | tojson | safe }};
+        if (prefillData && Array.isArray(prefillData) && prefillData.length > 0) {
+            console.log("Prefilling purchase form with low stock items:", prefillData);
+            prefillData.forEach(item => {
+                // Adapt the item structure slightly if needed for addProductToTable
+                addProductToTable({
+                    id: item.product_id,
+                    name: item.name,
+                    quantity: item.quantity,
+                    purchase_price: item.cost_price
+                    // Ensure addProductToTable can handle this structure
+                }, item.quantity); // Pass quantity explicitly
+            });
+        }
+
+
+        // Initial state update
+        updateSubmitButtonState();
+        updateGrandTotal(); // Calculate total for prefilled items
+
+    });
+</script>
+{% endblock %}
