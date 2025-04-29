@@ -9,6 +9,7 @@ python-barcode>=0.14   # For generating barcode images
 reportlab>=3.6         # For generating PDFs (stickers, invoices)
 bcrypt>=3.2            # For password hashing
 gunicorn>=20.0         # WSGI server for deployment (optional for Render)
+psycopg2-binary
 
 # Add mysqlclient or psycopg2 if/when switching to MySQL/PostgreSQL
 # mysqlclient>=2.0
