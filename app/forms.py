@@ -1,10 +1,10 @@
 # app/forms.py
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, BooleanField, SubmitField, FloatField, IntegerField, TextAreaField, SelectField
-from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError, Optional, NumberRange
+from wtforms import StringField, PasswordField, BooleanField, SubmitField, FloatField, IntegerField, TextAreaField, SelectField, HiddenField
+from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError, Optional, NumberRange, InputRequired
 
 # Import models if needed for validation (e.g., checking if username exists)
-# from .models import User
+from .models import Product
 
 class LoginForm(FlaskForm):
     """Form for user login."""
@@ -49,5 +49,49 @@ class PurchaseForm(FlaskForm):
     # Purchase items will likely be handled dynamically with JavaScript on the frontend
     notes = TextAreaField('Notes', validators=[Optional()])
     submit = SubmitField('Save Purchase') # Might be handled differently depending on UI flow
+
+# --- NEW: Stock Adjustment Form ---
+class StockAdjustmentForm(FlaskForm):
+    """Form for manually adjusting stock levels."""
+    product_id = HiddenField('Product ID', validators=[DataRequired()]) # Hidden field to store product ID
+    product_name = StringField('Product Name', render_kw={'readonly': True}) # Display only
+    current_stock = IntegerField('Current Stock', render_kw={'readonly': True}) # Display only
+    quantity_change = IntegerField('Quantity Change', validators=[InputRequired(message="Please enter quantity to add or remove.")])
+    reason = SelectField('Reason', choices=[
+        ('', '-- Select Reason --'),
+        ('Stock Take', 'Stock Take'),
+        ('Damage', 'Damage'),
+        ('Theft', 'Theft'),
+        ('Correction', 'Correction'),
+        ('Initial Stock', 'Initial Stock'),
+        ('Promotion/Demo', 'Promotion/Demo'),
+        ('Other', 'Other')
+    ], validators=[DataRequired(message="Please select a reason.")])
+    notes = TextAreaField('Notes', validators=[Optional(), Length(max=500)])
+    submit = SubmitField('Adjust Stock')
+
+    def validate_quantity_change(form, field):
+        """Ensure quantity change is not zero."""
+        if field.data == 0:
+            raise ValidationError('Quantity change cannot be zero.')
+
+    # Optional: Add validation to prevent stock going negative if change is negative
+    # def validate(self, extra_validators=None):
+    #     # Standard validation
+    #     initial_validation = super(StockAdjustmentForm, self).validate(extra_validators=extra_validators)
+    #     if not initial_validation:
+    #         return False
+    #     # Custom validation
+    #     product = Product.query.get(self.product_id.data)
+    #     if not product:
+    #         # This shouldn't happen if product_id is set correctly
+    #         return False
+    #     if self.quantity_change.data < 0 and abs(self.quantity_change.data) > product.stock_quantity:
+    #         self.quantity_change.errors.append(
+    #             f'Cannot remove {-self.quantity_change.data} items. Only {product.stock_quantity} available.'
+    #         )
+    #         return False
+    #     return True
+
 
 # Add other forms as needed (e.g., User management, Settings)

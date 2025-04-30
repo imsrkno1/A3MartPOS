@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="flex flex-wrap justify-between items-center mb-6 pb-4 border-b gap-4">
+    <div>
+        <h1 class="text-3xl font-bold text-gray-800">Monthly Sales Report</h1>
+        <p class="text-sm text-gray-500">Year: {{ report_year }}</p>
+    </div>
+    {# Year Selector Form #}
+    <form method="GET" action="{{ url_for('main.monthly_sales_report') }}" class="flex items-end gap-2">
+        <div>
+            <label for="year" class="block text-sm font-medium text-gray-700 mb-1">Select Year:</label>
+            <select id="year" name="year" class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 pl-3 pr-10">
+                {% for year in available_years %}
+                    <option value="{{ year }}" {% if year == report_year %}selected{% endif %}>{{ year }}</option>
+                {% else %}
+                    <option value="{{ report_year }}" selected>{{ report_year }}</option> {# Fallback if no years found #}
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            View Report
+        </button>
+    </form>
+</div>
+
+{# Report Summary Cards #}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white p-6 rounded-lg shadow-md text-center">
+        <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-1">Total Sales (Year)</h2>
+        <p class="text-3xl font-bold text-green-600">₹{{ "%.2f"|format(grand_total_sales) }}</p>
+    </div>
+     <div class="bg-white p-6 rounded-lg shadow-md text-center">
+        <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-1">Total Discount (Year)</h2>
+        <p class="text-3xl font-bold text-red-600">₹{{ "%.2f"|format(grand_total_discount) }}</p>
+    </div>
+     <div class="bg-white p-6 rounded-lg shadow-md text-center">
+        <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-1">Total Orders (Year)</h2>
+        <p class="text-3xl font-bold text-blue-600">{{ grand_total_orders }}</p>
+    </div>
+</div>
+
+{# Monthly Summary Table #}
+<h2 class="text-xl font-semibold text-gray-800 mb-4">Monthly Breakdown</h2>
+<div class="bg-white shadow-md rounded-lg overflow-hidden">
+    <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+            <tr>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Number of Sales</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Discount</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sales</th>
+            </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+            {% if report_summary %}
+                {# Loop through months 1 to 12 to ensure all are shown #}
+                {% for month_num in range(1, 13) %}
+                    {% set month_data = report_summary.get(month_num) %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ month_data.month_name if month_data else date(report_year, month_num, 1).strftime('%B') }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">{{ month_data.order_count if month_data else 0 }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-red-500 text-right">- ₹{{ "%.2f"|format(month_data.total_discount) if month_data else '0.00' }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium text-right">₹{{ "%.2f"|format(month_data.total_sales) if month_data else '0.00' }}</td>
+                    </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="4" class="px-6 py-4 text-center text-sm text-gray-500">No sales recorded for this year.</td>
+                </tr>
+            {% endif %}
+        </tbody>
+         <tfoot class="bg-gray-100 font-semibold">
+            <tr>
+                <td class="px-6 py-3 text-left text-sm uppercase">Year Total</td>
+                <td class="px-6 py-3 text-center text-sm">{{ grand_total_orders }}</td>
+                <td class="px-6 py-3 text-right text-sm">- ₹{{ "%.2f"|format(grand_total_discount) }}</td>
+                <td class="px-6 py-3 text-right text-sm">₹{{ "%.2f"|format(grand_total_sales) }}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+{% endblock %}

@@ -10,11 +10,26 @@
             <p class="text-sm text-gray-500">Sale ID: {{ sale.id }}</p>
             <p class="text-sm text-gray-500">Date: {{ sale.sale_timestamp.strftime('%d-%b-%Y %H:%M:%S') }}</p>
         </div>
-        <div class="text-right">
-            <a href="{{ url_for('billing.list_sales') }}" class="text-sm text-blue-600 hover:underline mr-4">&larr; Back to Sales List</a>
-            <a href="{{ url_for('billing.download_invoice_pdf', sale_id=sale.id) }}" target="_blank" class="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline text-sm">
+        <div class="text-right space-x-2"> {# Added space-x-2 #}
+            <a href="{{ url_for('billing.list_sales') }}" class="text-sm text-blue-600 hover:underline">&larr; Back to Sales List</a>
+            <a href="{{ url_for('billing.download_invoice_pdf', sale_id=sale.id) }}" target="_blank" class="inline-block bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline text-sm">
                 Download Invoice (PDF)
             </a>
+            {# ** ADDED: Return Button Form (conditionally shown) ** #}
+            {# Check if a return already exists for this sale #}
+            {% if not sale.returns.first() %}
+            <form action="{{ url_for('billing.process_return', sale_id=sale.id) }}" method="POST" class="inline" onsubmit="return confirm('Are you sure you want to process a FULL return for this sale? This action cannot be undone easily.');">
+                {# CSRF Token #}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {# Optional: Add a field for return reason if needed #}
+                {# <input type="text" name="return_reason" placeholder="Reason for return (optional)"> #}
+                <button type="submit" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline text-sm">
+                    Process Full Return
+                </button>
+            </form>
+            {% else %}
+                 <span class="inline-block bg-gray-400 text-white font-bold py-2 px-4 rounded text-sm cursor-not-allowed" title="Return already processed">Return Processed</span>
+            {% endif %}
         </div>
     </div>
 
@@ -80,13 +95,7 @@
         </table>
     </div>
 
-     {# Add Edit/Return button section here later if needed #}
-     {# <div class="mt-8 pt-5 border-t border-gray-200">
-         <div class="flex justify-end">
-              <button type="button" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mr-3">Process Return</button>
-              <button type="button" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Edit Sale (Use Caution)</button>
-         </div>
-    </div> #}
+     {# Removed Edit/Return button section here, added button at top #}
 
 </div>
 {% endblock %}

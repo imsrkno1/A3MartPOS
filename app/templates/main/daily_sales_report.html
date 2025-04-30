@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="flex flex-wrap justify-between items-center mb-6 pb-4 border-b gap-4"> {# Added flex-wrap and gap #}
+    <div>
+        <h1 class="text-3xl font-bold text-gray-800">Sales Report</h1>
+        {# Display date range #}
+        <p class="text-sm text-gray-500">
+            {% if data.start_date == data.end_date %}
+                Date: {{ data.start_date.strftime('%A, %d %B %Y') }}
+            {% else %}
+                Range: {{ data.start_date.strftime('%d %b %Y') }} to {{ data.end_date.strftime('%d %b %Y') }}
+            {% endif %}
+        </p>
+    </div>
+    {# Date Picker Form #}
+    <form method="GET" action="{{ url_for('main.sales_by_date_report') }}" class="flex items-end gap-2">
+        <div>
+            <label for="start_date" class="block text-sm font-medium text-gray-700 mb-1">Start Date:</label>
+            <input type="date" id="start_date" name="start_date" value="{{ start_date_str }}" class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3">
+        </div>
+         <div>
+            <label for="end_date" class="block text-sm font-medium text-gray-700 mb-1">End Date:</label>
+            <input type="date" id="end_date" name="end_date" value="{{ end_date_str }}" class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3">
+        </div>
+        <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            View Report
+        </button>
+    </form>
+</div>
+
+{# Report Summary Cards #}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white p-6 rounded-lg shadow-md text-center">
+        <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-1">Total Sales</h2>
+        <p class="text-3xl font-bold text-green-600">₹{{ "%.2f"|format(data.total_sales) }}</p>
+    </div>
+     <div class="bg-white p-6 rounded-lg shadow-md text-center">
+        <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-1">Total Discount</h2>
+        <p class="text-3xl font-bold text-red-600">₹{{ "%.2f"|format(data.total_discount) }}</p>
+    </div>
+     <div class="bg-white p-6 rounded-lg shadow-md text-center">
+        <h2 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-1">Number of Sales</h2>
+        <p class="text-3xl font-bold text-blue-600">{{ data.number_of_sales }}</p>
+    </div>
+</div>
+
+{# Detailed Sales Table #}
+<h2 class="text-xl font-semibold text-gray-800 mb-4">Sales Transactions</h2>
+<div class="bg-white shadow-md rounded-lg overflow-hidden">
+    <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+            <tr>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sale ID</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Discount</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+            </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+            {% if data.sales %}
+                {% for sale in data.sales %}
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ sale.sale_timestamp.strftime('%H:%M:%S') }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ sale.id }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ sale.customer.name if sale.customer else 'Walk-in' }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">{{ sale.items.count() }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-red-500 text-right">- ₹{{ "%.2f"|format(sale.discount_total) }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium text-right">₹{{ "%.2f"|format(sale.final_amount) }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ sale.payment_method }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <a href="{{ url_for('billing.view_sale', sale_id=sale.id) }}" class="text-green-600 hover:text-green-900 mr-3" title="View Sale Details">View</a>
+                        <a href="{{ url_for('billing.download_invoice_pdf', sale_id=sale.id) }}" target="_blank" class="text-indigo-600 hover:text-indigo-900" title="Download PDF Invoice">Invoice</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="8" class="px-6 py-4 text-center text-sm text-gray-500">No sales recorded for this date range.</td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+{# Add pagination if needed for very busy days later #}
+
+{% endblock %}

@@ -7,7 +7,8 @@ from sqlalchemy.orm import joinedload # Import joinedload if needed for other re
 from datetime import datetime
 
 from . import billing_bp # Import the blueprint instance
-from ..models import Product, Customer, Sale, SaleItem # Import relevant models
+# ** MODIFIED: Import SaleReturn, SaleReturnItem **
+from ..models import Product, Customer, Sale, SaleItem, SaleReturn, SaleReturnItem
 from .. import db # Import the database instance
 from ..utils import generate_a4_invoice_pdf, generate_thermal_receipt # Import utility functions
 
@@ -224,17 +225,86 @@ def list_sales():
 def view_sale(sale_id):
     """Displays the details of a specific sale."""
     # ** MODIFIED: Fetch sale first, then access items. Eager load customer/user. **
-    # Fetch the sale including related customer and user
     sale = Sale.query.options(
-        # Remove joinedload for Sale.items if it's dynamic
-        # db.joinedload(Sale.items).joinedload(SaleItem.product), # Removed/Commented out
         joinedload(Sale.customer), # Eager load customer
         joinedload(Sale.user) # Eager load user who made the sale
     ).get_or_404(sale_id)
-
     # Accessing sale.items here (or in the template) will trigger the query
-    # for the items if the relationship is dynamic or lazy='select'.
-    # The products within items will be loaded based on SaleItem.product relationship's lazy setting.
-
-    # Pass the sale object to the template
     return render_template('billing/sale_detail.html', title=f'Sale Details #{sale.id}', sale=sale)
+
+
+# --- Process Sale Return Route ---
+@billing_bp.route('/sales/return/<int:sale_id>', methods=['POST'])
+@login_required
+def process_return(sale_id):
+    """Processes a return against an original sale."""
+    original_sale = Sale.query.options(joinedload(Sale.items).joinedload(SaleItem.product)).get_or_404(sale_id)
+
+    # --- Basic Checks ---
+    # Check if a return already exists for this sale (prevent duplicate full returns)
+    existing_return = SaleReturn.query.filter_by(original_sale_id=original_sale.id).first()
+    if existing_return:
+        flash(f'A return has already been processed for Sale ID {original_sale.id}. Cannot process another full return.', 'warning')
+        return redirect(url_for('billing.view_sale', sale_id=sale_id))
+
+    # For simplicity, this assumes a full return of all items at the price they were sold.
+    # A more complex version would allow selecting items/quantities to return.
+    reason = request.form.get('return_reason', 'Full return processed') # Get reason from form if provided
+    total_refund = 0.0
+    return_items_to_add = []
+    stock_updates = []
+
+    try:
+        # Iterate through original sale items to create return items
+        for item in original_sale.items:
+            # Calculate amount refunded for this item (original net amount)
+            amount_refunded_for_item = (item.quantity * item.price_at_sale) - item.discount_applied
+            total_refund += amount_refunded_for_item
+
+            # Create SaleReturnItem
+            return_item = SaleReturnItem(
+                product_id=item.product_id,
+                quantity=item.quantity, # Returning the full original quantity
+                amount_refunded=amount_refunded_for_item
+                # sale_return_id will be set later
+            )
+            return_items_to_add.append(return_item)
+
+            # Prepare stock update (increase stock)
+            stock_updates.append({'product': item.product, 'quantity': item.quantity})
+
+        # --- Create SaleReturn Record and Items in Transaction ---
+        new_return = SaleReturn(
+            return_timestamp=datetime.utcnow(),
+            reason=reason,
+            total_refunded_amount=total_refund,
+            original_sale_id=original_sale.id,
+            customer_id=original_sale.customer_id, # Link to the same customer
+            processed_by_user_id=current_user.id # User processing the return
+        )
+        db.session.add(new_return)
+        db.session.flush() # Get the new_return.id
+
+        # Associate items with the return
+        for ret_item in return_items_to_add:
+            ret_item.sale_return_id = new_return.id
+            db.session.add(ret_item)
+
+        # Update stock quantities (increase)
+        for update in stock_updates:
+            # Need to ensure the product object is associated with the current session
+            # Merging or re-fetching might be safer in complex scenarios
+            product_to_update = db.session.merge(update['product'])
+            product_to_update.stock_quantity += update['quantity']
+
+        db.session.commit() # Commit all changes
+
+        flash(f'Return for Sale ID {original_sale.id} processed successfully. Stock updated.', 'success')
+        # Redirect back to the original sale detail page or a new return confirmation page
+        return redirect(url_for('billing.view_sale', sale_id=sale_id))
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error processing return for Sale ID {sale_id}: {e}")
+        flash(f'An error occurred while processing the return: {e}', 'danger')
+        return redirect(url_for('billing.view_sale', sale_id=sale_id))

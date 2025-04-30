@@ -79,6 +79,8 @@
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <a href="{{ url_for('inventory.edit_product', product_id=product.id) }}" class="text-indigo-600 hover:text-indigo-900 mr-3">Edit</a>
+                            {# ** ADDED: Adjust Stock Link ** #}
+                            <a href="{{ url_for('inventory.adjust_stock', product_id=product.id) }}" class="text-orange-600 hover:text-orange-900 mr-3 open-popup" title="Adjust Stock Quantity">Adjust</a>
                             </td>
                     </tr>
                     {% endfor %}
