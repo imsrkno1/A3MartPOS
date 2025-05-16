@@ -1,18 +1,18 @@
-
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ app_name }}{% endblock %}</title>
 
-    {# Using Tailwind Play CDN for development ease as per previous user preference #}
+    {# Using Tailwind Play CDN for development ease #}
     <script src="https://cdn.tailwindcss.com"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    {# Alpine JS CDN Script (Restored from previous user request for modern look with JS functionality) #}
+    {# Alpine JS CDN Script #}
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -56,14 +56,12 @@
 </head>
 <body class="bg-gray-100 text-gray-900 min-h-screen flex flex-col">
 
-    {# ** ADDED: Notification Area ** #}
     <div id="notification-area"></div>
 
     <nav class="bg-blue-600 text-white shadow-md sticky top-0 z-50">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            {# ** MODIFIED: Logo IMG Tag Removed ** #}
             <a href="{{ url_for('main.dashboard') }}" class="flex items-center text-xl font-bold">
-                 <img class="h-8 w-auto mr-2" src="{{ url_for('static', filename='images/logo_placeholder.png') }}" alt="A3 Mart Logo"
-                      onerror="this.onerror=null; this.src='https://placehold.co/100x32/003366/FFFFFF?text=A3Mart&font=sans';" >
                  <span>{{ app_name }}</span>
             </a>
             <div class="flex items-center space-x-1">
@@ -119,67 +117,51 @@
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="bg-gray-800 text-gray-400 text-center py-4 mt-auto">
-        <div class="container mx-auto px-4 text-sm"> &copy; {{ now().year }} {{ app_name }}. All rights reserved. </div>
+    <footer class="bg-gray-800 text-gray-400 text-center py-6 mt-auto"> {# Increased padding #}
+        <div class="container mx-auto px-4 text-sm">
+            <p class="mb-2">
+                &copy; {{ now().year }} <strong>ShubhTech Labs</strong> ({{ app_name }}). All rights reserved.
+            </p>
+            <p class="text-xs">
+                Contact: <a href="mailto:shubham@example.com" class="hover:text-gray-200">mail.shubham4u@gmail.com</a> | Phone: +91 7703997019
+            </p>
+            {# <p class="text-xs mt-1">Papnamau, Lucknow</p> #}
+        </div>
     </footer>
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     {% block scripts %}
     <script>
-        // ** ADDED: Global Notification Function **
-        function showAppNotification(message, type = 'info') { // type can be 'success', 'danger', 'warning', 'info'
+        // Global Notification Function
+        function showAppNotification(message, type = 'info') {
             const notificationArea = document.getElementById('notification-area');
-            if (!notificationArea) {
-                console.warn('Notification area #notification-area not found. Falling back to alert.');
-                alert(message);
-                return;
-            }
-
+            if (!notificationArea) { console.warn('Notification area #notification-area not found. Falling back to alert.'); alert(message); return; }
             const notifDiv = document.createElement('div');
             notifDiv.textContent = message;
-            notifDiv.classList.add('notification'); // Base class for padding, border-radius, shadow, text color, transition
-
-            // Add type-specific background
+            notifDiv.classList.add('notification');
             if (type === 'success') notifDiv.classList.add('notification-success');
             else if (type === 'danger') notifDiv.classList.add('notification-danger');
             else if (type === 'warning') notifDiv.classList.add('notification-warning');
-            else notifDiv.classList.add('notification-info'); // Default to info
-
+            else notifDiv.classList.add('notification-info');
             notificationArea.appendChild(notifDiv);
-
-            // Trigger fade in (slight delay to allow CSS to apply initial state for transition)
-            setTimeout(() => {
-                notifDiv.style.opacity = '1';
-                notifDiv.style.transform = 'translateX(0)';
-            }, 10);
-
-
-            // Auto-hide after a few seconds
-            setTimeout(() => {
-                notifDiv.classList.add('hide'); // Add class to trigger slide-out and fade-out
-                // Remove the element after the transition completes
-                notifDiv.addEventListener('transitionend', () => {
-                    notifDiv.remove();
-                });
-            }, 4000); // Display for 4 seconds
+            setTimeout(() => { notifDiv.style.opacity = '1'; notifDiv.style.transform = 'translateX(0)'; }, 10);
+            setTimeout(() => { notifDiv.classList.add('hide'); notifDiv.addEventListener('transitionend', () => { notifDiv.remove(); }); }, 4000);
         }
 
-
         document.addEventListener('DOMContentLoaded', function() {
-            // --- Popup Link Handler ---
+            // Popup Link Handler
             function openPopup(event) { event.preventDefault(); const url = event.currentTarget.href; window.open(url, 'formPopup', 'width=800,height=600,scrollbars=yes,resizable=yes'); }
             const popupPaths = ["{{ url_for('customers.add_customer') }}", "{{ url_for('inventory.add_product') }}"];
             document.querySelectorAll('a').forEach(link => {
                 try {
                     const linkPath = new URL(link.href).pathname;
                     if (popupPaths.includes(linkPath) || link.classList.contains('open-popup')) {
-                        link.removeEventListener('click', openPopup); // Prevent double-adding
+                        link.removeEventListener('click', openPopup);
                         link.addEventListener('click', openPopup);
                         link.removeAttribute('target');
                     }
                 } catch (e) {}
             });
-            // Note: Dropdown logic is now handled by Alpine.js if its CDN is included.
         });
     </script>
     {% endblock %}
