@@ -1,21 +1,18 @@
 # app/inventory/routes.py
-from flask import render_template, redirect, url_for, flash, request, current_app, jsonify, Response, abort, session # Added session
+from flask import render_template, redirect, url_for, flash, request, current_app, jsonify, Response, abort, session
 from flask_login import login_required, current_user
 from sqlalchemy import or_
-from datetime import datetime
-import os # For file paths
-from werkzeug.utils import secure_filename # For secure file handling
-import pandas as pd # Import pandas
+from datetime import datetime, date, timedelta # Added date, timedelta
+import os
+from werkzeug.utils import secure_filename
+import pandas as pd
 
-from . import inventory_bp # Import the blueprint instance
-# ** MODIFIED: Import StockAdjustment **
+from . import inventory_bp
 from ..models import Product, Purchase, PurchaseItem, StockAdjustment
-# ** MODIFIED: Import StockAdjustmentForm **
 from ..forms import ProductForm, PurchaseForm, StockAdjustmentForm
-from .. import db # Import the database instance
-from ..utils import generate_barcode_logic, generate_barcode_sticker_pdf # Import utilities
+from .. import db
+from ..utils import generate_barcode_logic, generate_barcode_sticker_pdf
 
-# Allowed file extensions for upload
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
 
 def allowed_file(filename):
@@ -184,12 +181,42 @@ def generate_low_stock_order():
 @inventory_bp.route('/api/products/search')
 @login_required
 def search_products_api():
+    """API endpoint to search products for dynamic forms."""
     query = request.args.get('q', ''); limit = request.args.get('limit', 10, type=int)
+    today = date.today()
+    expiry_alert_days = 10 # Consistent with dashboard logic
+    near_expiry_date_limit = today + timedelta(days=expiry_alert_days)
+
     if not query: return jsonify([])
     search_term = f"%{query}%"
-    products = Product.query.filter( Product.is_active == True, or_( Product.name.ilike(search_term), Product.barcode.ilike(search_term), Product.sku.ilike(search_term) )).limit(limit).all()
-    results = [ { 'id': p.id, 'text': f"{p.name} (Barcode: {p.barcode or 'N/A'}, SKU: {p.sku or 'N/A'})", 'name': p.name, 'barcode': p.barcode, 'sku': p.sku, 'selling_price': p.selling_price, 'purchase_price': p.purchase_price, 'stock_quantity': p.stock_quantity, 'discount_percent': p.discount_percent } for p in products ]
+    products = Product.query.filter(
+        Product.is_active == True,
+        or_(
+            Product.name.ilike(search_term),
+            Product.barcode.ilike(search_term),
+            Product.sku.ilike(search_term)
+        )
+    ).limit(limit).all()
+
+    results = []
+    for p in products:
+        is_near_expiry = False
+        if p.expiry_date and p.stock_quantity > 0: # Check if expiry_date is set and in stock
+            if today <= p.expiry_date <= near_expiry_date_limit:
+                is_near_expiry = True
+        
+        results.append({
+            'id': p.id,
+            'text': f"{p.name} (Barcode: {p.barcode or 'N/A'}, SKU: {p.sku or 'N/A'})",
+            'name': p.name, 'barcode': p.barcode, 'sku': p.sku,
+            'selling_price': p.selling_price, 'purchase_price': p.purchase_price,
+            'stock_quantity': p.stock_quantity,
+            'discount_percent': p.discount_percent,
+            'brand': p.brand, # ** Added brand here as well if not already present **
+            'is_near_expiry': is_near_expiry # ** ADDED: Near Expiry Flag **
+        })
     return jsonify(results)
+
 
 # --- Barcode Sticker PDF Route ---
 @inventory_bp.route('/products/stickers/pdf', methods=['POST'])
@@ -249,7 +276,6 @@ def list_stock_adjustments():
     adjustments = pagination.items
     return render_template('inventory/adjustments_history.html', title='Stock Adjustment History', adjustments=adjustments, pagination=pagination)
 
-# --- Bulk Stock Upload Route ---
 @inventory_bp.route('/stock/bulk-upload', methods=['GET', 'POST'])
 @login_required
 def bulk_upload_stock():
@@ -270,20 +296,14 @@ def bulk_upload_stock():
                      return redirect(request.url)
                 updated_count = 0; skipped_count = 0; errors = []
                 for index, row in excel_data.iterrows():
-                    identifier_value = row[identifier_col]; new_quantity_val = row[required_qty_col] # Renamed to avoid conflict
+                    identifier_value = row[identifier_col]; new_quantity_val = row[required_qty_col]
                     if pd.isna(identifier_value) or pd.isna(new_quantity_val):
                         skipped_count += 1; errors.append(f"Row {index+2}: Skipped missing data."); continue
-                    
-                    # ** CORRECTED try-except block structure for quantity validation **
                     try:
-                        new_quantity = int(new_quantity_val) # Use new_quantity_val here
-                        if new_quantity < 0:
-                            raise ValueError("Quantity cannot be negative.")
+                        new_quantity = int(new_quantity_val)
+                        if new_quantity < 0: raise ValueError("Quantity cannot be negative.")
                     except (ValueError, TypeError):
-                        skipped_count += 1
-                        errors.append(f"Row {index+2}: Invalid quantity '{new_quantity_val}'. Must be a whole non-negative number.")
-                        continue
-                    
+                        skipped_count += 1; errors.append(f"Row {index+2}: Invalid quantity '{new_quantity_val}'. Must be a whole non-negative number."); continue
                     product = None
                     if identifier_col == 'Barcode': product = Product.query.filter_by(barcode=str(identifier_value)).first()
                     elif identifier_col == 'SKU': product = Product.query.filter_by(sku=str(identifier_value)).first()
@@ -299,7 +319,7 @@ def bulk_upload_stock():
                 flash(f'Bulk upload: Updated {updated_count}, Skipped {skipped_count}.', 'success')
                 if errors:
                     flash('Details for skipped rows:', 'warning')
-                    for error_msg in errors[:10]: flash(error_msg, 'info') # Changed category for individual errors
+                    for error_msg in errors[:10]: flash(error_msg, 'info')
                     if len(errors) > 10: flash(f"... and {len(errors)-10} more errors.", 'info')
                 return redirect(url_for('inventory.list_products'))
             except Exception as e:
@@ -307,3 +327,5 @@ def bulk_upload_stock():
                 flash(f'Error processing file: {e}', 'danger'); return redirect(request.url)
         else: flash('Invalid file type. Only .xlsx or .xls allowed.', 'danger'); return redirect(request.url)
     return render_template('inventory/bulk_upload_stock.html', title='Bulk Stock Upload')
+
+4
