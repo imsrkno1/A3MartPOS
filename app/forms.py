@@ -1,6 +1,8 @@
 # app/forms.py
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, BooleanField, SubmitField, FloatField, IntegerField, TextAreaField, SelectField, HiddenField
+# ** ADDED: DateField for expiry_date **
+from wtforms.fields import DateField # Make sure to import DateField
 from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError, Optional, NumberRange, InputRequired
 
 # Import models if needed for validation (e.g., checking if username exists)
@@ -33,7 +35,7 @@ class ProductForm(FlaskForm):
     """Form for adding/editing products."""
     name = StringField('Product Name', validators=[DataRequired(), Length(max=128)])
     description = TextAreaField('Description', validators=[Optional(), Length(max=256)])
-    barcode = StringField('Barcode', validators=[Optional(), Length(max=64)]) # Optional if auto-generating
+    barcode = StringField('Barcode', validators=[Optional(), Length(max=64)])
     sku = StringField('SKU', validators=[Optional(), Length(max=64)])
     category = StringField('Category', validators=[Optional(), Length(max=64)])
     brand = StringField('Brand', validators=[Optional(), Length(max=64)])
@@ -42,13 +44,15 @@ class ProductForm(FlaskForm):
     stock_quantity = IntegerField('Initial Stock Quantity', validators=[DataRequired(), NumberRange(min=0)], default=0)
     low_stock_threshold = IntegerField('Low Stock Threshold', validators=[Optional(), NumberRange(min=0)], default=10)
     discount_percent = FloatField('Discount (%)', validators=[Optional(), NumberRange(min=0, max=100)], default=0.0)
+    # ** ADDED: expiry_date field **
+    expiry_date = DateField('Expiry Date', validators=[Optional()], format='%Y-%m-%d')
     submit = SubmitField('Save Product')
 
 
 class CustomerForm(FlaskForm):
     """Form for adding/editing customers."""
     name = StringField('Customer Name', validators=[DataRequired(), Length(max=128)])
-    phone_number = StringField('Phone Number', validators=[Optional(), Length(min=10, max=20)]) # Basic length validation
+    phone_number = StringField('Phone Number', validators=[Optional(), Length(min=10, max=20)])
     email = StringField('Email', validators=[Optional(), Email(), Length(max=120)])
     address = TextAreaField('Address', validators=[Optional(), Length(max=256)])
     submit = SubmitField('Save Customer')
