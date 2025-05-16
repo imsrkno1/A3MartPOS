@@ -13,12 +13,14 @@ from ..utils import generate_a4_invoice_pdf, generate_thermal_receipt
 @billing_bp.route('/billing')
 @login_required
 def billing_page():
+    """Displays the main billing interface."""
     return render_template('billing/billing.html', title='Billing')
 
 
 @billing_bp.route('/billing/process', methods=['POST'])
 @login_required
 def process_sale():
+    """Processes the submitted sale data from the billing interface."""
     current_app.logger.info("--- process_sale route initiated ---")
     data = request.get_json()
     if not data:
@@ -153,27 +155,53 @@ def process_sale():
         current_app.logger.error(f"Error saving sale (general Exception): {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': 'Failed to save sale record due to an internal error.'}), 500
 
-# ... (rest of the routes: download_invoice_pdf, list_sales, view_sale, process_return) ...
+
 @billing_bp.route('/invoice/pdf/<int:sale_id>')
 @login_required
 def download_invoice_pdf(sale_id):
-    sale = Sale.query.get_or_404(sale_id)
+    """Generates and downloads an A4 PDF invoice for a specific sale."""
+    sale = Sale.query.options(
+        joinedload(Sale.items).joinedload(SaleItem.product), # Eager load for PDF data
+        joinedload(Sale.customer),
+        joinedload(Sale.user)
+    ).get_or_404(sale_id)
+
     sale_data_for_pdf = {
-        'sale_id': sale.id, 'timestamp': sale.sale_timestamp.isoformat(),
-        'subtotal': "%.2f" % sale.total_amount, 'discount': "%.2f" % sale.discount_total,
-        'total': "%.2f" % sale.final_amount, 'payment_method': sale.payment_method,
+        'sale_id': sale.id,
+        'timestamp': sale.sale_timestamp.isoformat(),
+        'subtotal': "%.2f" % sale.total_amount,
+        'discount': "%.2f" % sale.discount_total,
+        'total': "%.2f" % sale.final_amount,
+        'payment_method': sale.payment_method,
         'customer_name': sale.customer.name if sale.customer else None,
-        'items': [ { 'name': item.product.name, 'quantity': item.quantity, 'price': "%.2f" % item.price_at_sale, 'item_total': "%.2f" % (item.quantity * item.price_at_sale - item.discount_applied) } for item in sale.items ]
+        'items': [
+            {
+                'name': item.product.name,
+                'quantity': item.quantity,
+                'price': "%.2f" % item.price_at_sale,
+                'discount_percent': "%.2f" % ((item.discount_applied / (item.quantity * item.price_at_sale) * 100) if (item.quantity * item.price_at_sale) > 0 and item.discount_applied > 0 else 0.0),
+                'net_amount': "%.2f" % ((item.quantity * item.price_at_sale) - item.discount_applied)
+             } for item in sale.items
+        ]
     }
+    current_app.logger.info(f"Data for PDF Invoice (Sale ID: {sale_id}): {sale_data_for_pdf}")
+
     pdf_buffer = generate_a4_invoice_pdf(sale_data_for_pdf)
-    if pdf_buffer is None: flash('Error generating PDF invoice.', 'danger'); abort(500, description="Failed to generate PDF invoice.")
+
+    if pdf_buffer is None:
+        flash('Error generating PDF invoice. Please check server logs.', 'danger')
+        current_app.logger.error(f"PDF generation returned None for sale ID {sale_id}. Data passed: {sale_data_for_pdf}")
+        return redirect(url_for('billing.view_sale', sale_id=sale_id))
+
     response = Response(pdf_buffer.getvalue(), mimetype='application/pdf')
     response.headers['Content-Disposition'] = f'attachment; filename=Invoice_{sale.id}.pdf'
     return response
 
+
 @billing_bp.route('/sales')
 @login_required
 def list_sales():
+    """Displays a list of past sales transactions with pagination."""
     page = request.args.get('page', 1, type=int); query = request.args.get('query', '')
     sales_query = Sale.query.order_by(Sale.sale_timestamp.desc())
     if query:
@@ -186,12 +214,16 @@ def list_sales():
 @billing_bp.route('/sales/view/<int:sale_id>')
 @login_required
 def view_sale(sale_id):
+    """Displays the details of a specific sale."""
     sale = Sale.query.options( joinedload(Sale.customer), joinedload(Sale.user) ).get_or_404(sale_id)
+    # Items and their products will be loaded when sale.items is accessed in the template due to lazy='dynamic'
+    # or the default lazy='select' on SaleItem.product
     return render_template('billing/sale_detail.html', title=f'Sale Details #{sale.id}', sale=sale)
 
 @billing_bp.route('/sales/return/<int:sale_id>', methods=['POST'])
 @login_required
 def process_return(sale_id):
+    """Processes a return against an original sale."""
     original_sale = Sale.query.options(joinedload(Sale.items).joinedload(SaleItem.product)).get_or_404(sale_id)
     existing_return = SaleReturn.query.filter_by(original_sale_id=original_sale.id).first()
     if existing_return:
@@ -202,7 +234,7 @@ def process_return(sale_id):
     try:
         for item in original_sale.items:
             amount_refunded_for_item = (item.quantity * item.price_at_sale) - item.discount_applied; total_refund += amount_refunded_for_item
-            return_item = SaleReturnItem( product_id=item.product_id, quantity=item.quantity, amount_refunded=amount_refunded_for_item )
+            return_item = SaleReturnItem( product_id=item.product.id, quantity=item.quantity, amount_refunded=amount_refunded_for_item )
             return_items_to_add.append(return_item)
             stock_updates.append({'product': item.product, 'quantity': item.quantity})
         new_return = SaleReturn( return_timestamp=datetime.utcnow(), reason=reason, total_refunded_amount=total_refund, original_sale_id=original_sale.id, customer_id=original_sale.customer_id, processed_by_user_id=current_user.id )
