@@ -23,7 +23,7 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # --- Product Routes ---
-# ... (existing product routes: list_products, add_product, edit_product) ...
+# ... (list_products, add_product, edit_product routes remain the same) ...
 @inventory_bp.route('/products')
 @login_required
 def list_products():
@@ -114,7 +114,7 @@ def edit_product(product_id):
     return render_template('inventory/product_form.html', title='Edit Product', form=form, product=product, form_action='Edit')
 
 # --- Purchase Routes ---
-# ... (existing purchase routes: list_purchases, add_purchase) ...
+# ... (list_purchases, add_purchase, generate_low_stock_order routes remain the same) ...
 @inventory_bp.route('/purchases')
 @login_required
 def list_purchases():
@@ -165,7 +165,6 @@ def add_purchase():
             return render_template('inventory/purchase_form.html', title='Record Purchase', form=form)
     return render_template('inventory/purchase_form.html', title='Record Purchase', form=form, prefill_items=prefill_items)
 
-# --- Generate Low Stock Purchase Order Route ---
 @inventory_bp.route('/inventory/generate-low-stock-order', methods=['POST'])
 @login_required
 def generate_low_stock_order():
@@ -197,24 +196,114 @@ def search_products_api():
     results = [ { 'id': p.id, 'text': f"{p.name} (Barcode: {p.barcode or 'N/A'}, SKU: {p.sku or 'N/A'})", 'name': p.name, 'barcode': p.barcode, 'sku': p.sku, 'selling_price': p.selling_price, 'purchase_price': p.purchase_price, 'stock_quantity': p.stock_quantity, 'discount_percent': p.discount_percent } for p in products ]
     return jsonify(results)
 
+
 # --- Barcode Sticker PDF Route ---
 @inventory_bp.route('/products/stickers/pdf', methods=['POST'])
 @login_required
 def download_sticker_pdf():
     """Generates and downloads an A4 PDF with barcode stickers for selected products."""
-    product_ids = request.form.getlist('product_ids')
-    if not product_ids: flash('No products selected for sticker generation.', 'warning'); return redirect(url_for('inventory.list_products'))
-    try: int_product_ids = [int(pid) for pid in product_ids]; products_to_print = Product.query.filter(Product.id.in_(int_product_ids)).all()
-    except ValueError: flash('Invalid product selection.', 'danger'); return redirect(url_for('inventory.list_products'))
-    if not products_to_print: flash('Selected products not found.', 'warning'); return redirect(url_for('inventory.list_products'))
-    valid_products = [p for p in products_to_print if p.barcode]
-    if not valid_products: flash('None of the selected products have barcodes assigned.', 'warning'); return redirect(url_for('inventory.list_products'))
-    pdf_buffer = generate_barcode_sticker_pdf(valid_products)
-    if pdf_buffer is None: flash('Error generating barcode sticker PDF.', 'danger'); return redirect(url_for('inventory.list_products'))
+    product_ids_str = request.form.getlist('product_ids') # Get list of selected product IDs
+    if not product_ids_str:
+        flash('No products selected for sticker generation.', 'warning')
+        return redirect(url_for('inventory.list_products'))
+
+    products_data_for_pdf = []
+    try:
+        for pid_str in product_ids_str:
+            product_id = int(pid_str)
+            # Get the requested quantity for this product ID
+            # The input name is sticker_qty_<product_id>
+            quantity_str = request.form.get(f'sticker_qty_{product_id}')
+            try:
+                quantity = int(quantity_str) if quantity_str else 1 # Default to 1 if not provided or empty
+                if quantity < 1: quantity = 1 # Ensure at least 1 copy
+            except ValueError:
+                quantity = 1 # Default to 1 if quantity is not a valid number
+
+            product = Product.query.get(product_id)
+            if product and product.barcode:
+                # Add the product object 'quantity' times to the list
+                for _ in range(quantity):
+                    products_data_for_pdf.append(product)
+            elif product and not product.barcode:
+                 flash(f'Product "{product.name}" was selected but has no barcode. Skipping.', 'info')
+            # If product not found, it's skipped implicitly
+
+    except ValueError:
+         flash('Invalid product selection or quantity.', 'danger')
+         return redirect(url_for('inventory.list_products'))
+
+    if not products_data_for_pdf:
+        flash('No valid products with barcodes selected or found for sticker generation.', 'warning')
+        return redirect(url_for('inventory.list_products'))
+
+    # Generate the PDF using the utility function
+    pdf_buffer = generate_barcode_sticker_pdf(products_data_for_pdf)
+
+    if pdf_buffer is None:
+        flash('Error generating barcode sticker PDF.', 'danger')
+        return redirect(url_for('inventory.list_products'))
+
+    # Create a Flask Response object
     response = Response(pdf_buffer.getvalue(), mimetype='application/pdf')
-    response.headers['Content-Disposition'] = f'attachment; filename=Barcode_Stickers_{datetime.now().strftime("%Y%m%d")}.pdf'
+    # Set headers to prompt download
+    response.headers['Content-Disposition'] = f'attachment; filename=Barcode_Stickers_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
     return response
 
+# --- Bulk Stock Upload Route ---
+@inventory_bp.route('/stock/bulk-upload', methods=['GET', 'POST'])
+@login_required
+def bulk_upload_stock():
+    """Displays upload form and processes bulk stock update from Excel file."""
+    if request.method == 'POST':
+        if 'stock_file' not in request.files: flash('No file part in the request.', 'danger'); return redirect(request.url)
+        file = request.files['stock_file']
+        if file.filename == '': flash('No selected file.', 'warning'); return redirect(request.url)
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            try:
+                excel_data = pd.read_excel(file.stream, engine='openpyxl')
+                required_qty_col = 'NewQuantity'; identifier_col = None
+                if 'Barcode' in excel_data.columns: identifier_col = 'Barcode'
+                elif 'SKU' in excel_data.columns: identifier_col = 'SKU'
+                elif 'ProductID' in excel_data.columns: identifier_col = 'ProductID'
+                if not identifier_col or required_qty_col not in excel_data.columns:
+                     flash(f'Excel file must contain columns "{required_qty_col}" and one of "Barcode", "SKU", or "ProductID".', 'danger')
+                     return redirect(request.url)
+                updated_count = 0; skipped_count = 0; errors = []
+                for index, row in excel_data.iterrows():
+                    identifier_value = row[identifier_col]; new_quantity = row[required_qty_col]
+                    if pd.isna(identifier_value) or pd.isna(new_quantity):
+                        skipped_count += 1; errors.append(f"Row {index+2}: Skipped due to missing identifier or quantity."); continue
+                    try:
+                        new_quantity = int(new_quantity)
+                        if new_quantity < 0: raise ValueError("Quantity cannot be negative.")
+                    except (ValueError, TypeError):
+                        skipped_count += 1; errors.append(f"Row {index+2}: Invalid quantity '{row[required_qty_col]}'. Must be a whole number."); continue
+                    product = None
+                    if identifier_col == 'Barcode': product = Product.query.filter_by(barcode=str(identifier_value)).first()
+                    elif identifier_col == 'SKU': product = Product.query.filter_by(sku=str(identifier_value)).first()
+                    elif identifier_col == 'ProductID':
+                         try: product = Product.query.get(int(identifier_value))
+                         except ValueError: product = None
+                    if product:
+                        stock_before = product.stock_quantity; change = new_quantity - stock_before
+                        adjustment = StockAdjustment( product_id=product.id, user_id=current_user.id, quantity_change=change, reason="Bulk Upload", notes=f"Uploaded via file: {filename}", stock_level_before=stock_before, stock_level_after=new_quantity )
+                        product.stock_quantity = new_quantity; db.session.add(adjustment); updated_count += 1
+                    else: skipped_count += 1; errors.append(f"Row {index+2}: Product with {identifier_col} '{identifier_value}' not found.")
+                db.session.commit()
+                flash(f'Bulk stock upload processed. Updated: {updated_count}, Skipped: {skipped_count}.', 'success')
+                if errors:
+                    flash('Some rows were skipped:', 'warning')
+                    for error in errors[:10]: flash(error, 'danger')
+                    if len(errors) > 10: flash(f"... and {len(errors)-10} more errors.", 'warning')
+                return redirect(url_for('inventory.list_products'))
+            except Exception as e:
+                db.session.rollback(); current_app.logger.error(f"Error processing bulk upload file {filename}: {e}")
+                flash(f'Error processing file: {e}', 'danger'); return redirect(request.url)
+        else: flash('Invalid file type. Please upload .xlsx or .xls files.', 'danger'); return redirect(request.url)
+    return render_template('inventory/bulk_upload_stock.html', title='Bulk Stock Upload')
+# Add routes for viewing adjustment history later if needed
 # --- Stock Adjustment Routes ---
 @inventory_bp.route('/products/adjust/<int:product_id>', methods=['GET', 'POST'])
 @login_required
@@ -222,146 +311,72 @@ def adjust_stock(product_id):
     """Displays and processes the stock adjustment form for a product."""
     product = Product.query.get_or_404(product_id)
     form = StockAdjustmentForm()
+
     if form.validate_on_submit():
-        change = form.quantity_change.data; reason = form.reason.data; notes = form.notes.data
-        if change < 0 and abs(change) > product.stock_quantity:
-             flash(f'Cannot remove {abs(change)} items. Only {product.stock_quantity} available.', 'danger')
-             form.product_id.data = product.id; form.product_name.data = product.name; form.current_stock.data = product.stock_quantity
-             return render_template('inventory/stock_adjustment_form.html', title=f'Adjust Stock - {product.name}', form=form, product=product)
-        try:
-            stock_before = product.stock_quantity; stock_after = stock_before + change
-            adjustment = StockAdjustment( product_id=product.id, user_id=current_user.id, quantity_change=change, reason=reason, notes=notes, stock_level_before=stock_before, stock_level_after=stock_after )
-            product.stock_quantity = stock_after
-            db.session.add(adjustment); db.session.commit()
-            flash(f'Stock for "{product.name}" adjusted by {change}. New stock: {stock_after}.', 'success')
-            return redirect(url_for('inventory.list_products'))
-        except Exception as e:
-            db.session.rollback(); current_app.logger.error(f"Error adjusting stock for product {product_id}: {e}")
-            flash(f'An error occurred while adjusting stock: {e}', 'danger')
-    form.product_id.data = product.id; form.product_name.data = product.name; form.current_stock.data = product.stock_quantity
-    return render_template('inventory/stock_adjustment_form.html', title=f'Adjust Stock - {product.name}', form=form, product=product)
+        # Form is valid, process the adjustment
+        change = form.quantity_change.data
+        reason = form.reason.data
+        notes = form.notes.data
 
-
-# --- NEW: Bulk Stock Upload Route ---
-@inventory_bp.route('/stock/bulk-upload', methods=['GET', 'POST'])
-@login_required
-def bulk_upload_stock():
-    """Displays upload form and processes bulk stock update from Excel file."""
-    if request.method == 'POST':
-        # Check if the post request has the file part
-        if 'stock_file' not in request.files:
-            flash('No file part in the request.', 'danger')
-            return redirect(request.url)
-        file = request.files['stock_file']
-        # If the user does not select a file, the browser submits an empty file without a filename.
-        if file.filename == '':
-            flash('No selected file.', 'warning')
-            return redirect(request.url)
-
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename) # Good practice
-            # Process the file (Read with pandas, update DB)
+        # Optional: Validate again if stock would go excessively negative
+        # (though the form has a basic check, this is a server-side confirmation)
+        if product.stock_quantity + change < 0 and reason not in ['Initial Stock', 'Correction']: # Allow negative only for specific reasons if desired
+             flash(f'Adjustment would result in negative stock ({product.stock_quantity + change}). Please verify.', 'danger')
+        else:
             try:
-                # Read the excel file. Might need to specify sheet_name if not the first one
-                # Use BytesIO to read file from memory without saving temporarily
-                excel_data = pd.read_excel(file.stream, engine='openpyxl') # Use openpyxl engine for .xlsx
+                stock_before = product.stock_quantity
+                stock_after = stock_before + change
 
-                # ** Crucial: Validate columns **
-                required_qty_col = 'NewQuantity'
-                # Identify product identifier column (Barcode, SKU, or ProductID)
-                identifier_col = None
-                if 'Barcode' in excel_data.columns:
-                    identifier_col = 'Barcode'
-                elif 'SKU' in excel_data.columns:
-                    identifier_col = 'SKU'
-                elif 'ProductID' in excel_data.columns:
-                     identifier_col = 'ProductID'
-                # Add more identifiers if needed
+                adjustment = StockAdjustment(
+                    product_id=product.id,
+                    user_id=current_user.id,
+                    quantity_change=change,
+                    reason=reason,
+                    notes=notes,
+                    stock_level_before=stock_before,
+                    stock_level_after=stock_after
+                )
+                # Update product stock
+                product.stock_quantity = stock_after
 
-                if not identifier_col or required_qty_col not in excel_data.columns:
-                     flash(f'Excel file must contain columns "{required_qty_col}" and one of "Barcode", "SKU", or "ProductID".', 'danger')
-                     return redirect(request.url)
-
-                updated_count = 0
-                skipped_count = 0
-                errors = []
-
-                # Iterate through rows and update stock
-                for index, row in excel_data.iterrows():
-                    identifier_value = row[identifier_col]
-                    new_quantity = row[required_qty_col]
-
-                    # Basic data validation
-                    if pd.isna(identifier_value) or pd.isna(new_quantity):
-                        skipped_count += 1
-                        errors.append(f"Row {index+2}: Skipped due to missing identifier or quantity.")
-                        continue
-                    try:
-                        new_quantity = int(new_quantity)
-                        if new_quantity < 0:
-                             raise ValueError("Quantity cannot be negative.")
-                    except (ValueError, TypeError):
-                        skipped_count += 1
-                        errors.append(f"Row {index+2}: Invalid quantity '{row[required_qty_col]}'. Must be a whole number.")
-                        continue
-
-                    # Find product in database
-                    product = None
-                    if identifier_col == 'Barcode':
-                        product = Product.query.filter_by(barcode=str(identifier_value)).first()
-                    elif identifier_col == 'SKU':
-                        product = Product.query.filter_by(sku=str(identifier_value)).first()
-                    elif identifier_col == 'ProductID':
-                         try:
-                             product = Product.query.get(int(identifier_value))
-                         except ValueError:
-                              product = None # Invalid ProductID format
-
-                    if product:
-                        # Record adjustment and update stock
-                        stock_before = product.stock_quantity
-                        change = new_quantity - stock_before # Calculate change based on *new total* quantity
-
-                        adjustment = StockAdjustment(
-                            product_id=product.id,
-                            user_id=current_user.id,
-                            quantity_change=change,
-                            reason="Bulk Upload", # Specific reason
-                            notes=f"Uploaded via file: {filename}",
-                            stock_level_before=stock_before,
-                            stock_level_after=new_quantity
-                        )
-                        product.stock_quantity = new_quantity # Set the new total quantity
-                        db.session.add(adjustment)
-                        updated_count += 1
-                    else:
-                        skipped_count += 1
-                        errors.append(f"Row {index+2}: Product with {identifier_col} '{identifier_value}' not found.")
-
-                # Commit all changes after processing the file
+                db.session.add(adjustment)
+                # db.session.add(product) # Product is already in session, changes will be picked up
                 db.session.commit()
 
-                flash(f'Bulk stock upload processed. Updated: {updated_count}, Skipped: {skipped_count}.', 'success')
-                if errors:
-                    flash('Some rows were skipped:', 'warning')
-                    for error in errors[:10]: # Show first 10 errors
-                        flash(error, 'danger')
-                    if len(errors) > 10:
-                         flash(f"... and {len(errors)-10} more errors.", 'warning')
+                flash(f'Stock for "{product.name}" adjusted by {change}. New stock: {stock_after}.', 'success')
                 return redirect(url_for('inventory.list_products'))
 
             except Exception as e:
                 db.session.rollback()
-                current_app.logger.error(f"Error processing bulk upload file {filename}: {e}")
-                flash(f'Error processing file: {e}', 'danger')
-                return redirect(request.url)
+                current_app.logger.error(f"Error adjusting stock for product {product_id}: {e}")
+                flash(f'An error occurred while adjusting stock: {e}', 'danger')
 
-        else:
-            flash('Invalid file type. Please upload .xlsx or .xls files.', 'danger')
-            return redirect(request.url)
+    # --- Handle GET Request or Failed Validation ---
+    # Pre-fill form fields for GET request
+    form.product_id.data = product.id # Set the hidden product_id field
+    form.product_name.data = product.name
+    form.current_stock.data = product.stock_quantity
+    # Set a default value for quantity_change to empty or 0 for clarity on GET
+    if request.method == 'GET':
+        form.quantity_change.data = None # Or 0, or '' depending on desired placeholder behavior
 
-    # Handle GET request: display the upload form
-    return render_template('inventory/bulk_upload_stock.html', title='Bulk Stock Upload')
+    return render_template('inventory/stock_adjustment_form.html',
+                           title=f'Adjust Stock - {product.name}',
+                           form=form, product=product)
 
-
-# Add routes for viewing adjustment history later if needed
+# --- Route to list stock adjustments (Optional) ---
+@inventory_bp.route('/stock/adjustments')
+@login_required
+def list_stock_adjustments():
+    """Displays a history of stock adjustments."""
+    page = request.args.get('page', 1, type=int)
+    adjustments_query = StockAdjustment.query.order_by(StockAdjustment.timestamp.desc())
+    # Add filtering by product or user later if needed
+    pagination = adjustments_query.paginate(
+        page=page, per_page=current_app.config.get('ITEMS_PER_PAGE', 20), error_out=False
+    )
+    adjustments = pagination.items
+    return render_template('inventory/adjustments_history.html',
+                           title='Stock Adjustment History',
+                           adjustments=adjustments,
+                           pagination=pagination)

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Processing...</title>
+</head>
+<body>
+    <script>
+        // This script runs inside the iframe after successful form submission
+        try {
+            if (window.parent && typeof window.parent.handleCustomerAdded === 'function') {
+                const customerData = {
+                    id: {{ customer_id|tojson }},
+                    name: {{ customer_name|tojson }},
+                    phone: {{ customer_phone|tojson }},
+                    email: {{ customer_email|tojson }}
+                };
+                window.parent.handleCustomerAdded(customerData);
+            } else {
+                // Fallback if not in a modal or parent function doesn't exist
+                alert("Customer action successful! You may need to refresh the main page.");
+            }
+        } catch (e) {
+            console.error("Error communicating with parent window:", e);
+            // Fallback for cross-origin issues if any (should not happen if same domain)
+            alert("Customer action successful. Please close this window and refresh the main page.");
+        }
+    </script>
+    <p>Customer {{ "updated" if refresh_parent else "added" }} successfully. Closing...</p>
+</body>
+</html>

@@ -1,19 +1,18 @@
-<!DOCTYPE html>
+
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}{{ app_name }}{% endblock %}</title> {# ** RESTORED: Tailwind CSS Play CDN Script ** #}
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>{% block title %}{{ app_name }}{% endblock %}</title>
 
-    {# ** REMOVED: Link to Compiled Production CSS ** #}
-    {# <link rel="stylesheet" href="{{ url_for('static', filename='css/dist/output.css') }}"> #}
+    {# Using Tailwind Play CDN for development ease as per previous user preference #}
+    <script src="https://cdn.tailwindcss.com"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    {# ** RESTORED: Alpine JS CDN Script (Deferred) ** #}
+    {# Alpine JS CDN Script (Restored from previous user request for modern look with JS functionality) #}
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -21,40 +20,61 @@
     <style>
         /* Apply Inter font globally */
         body { font-family: 'Inter', sans-serif; }
-        /* Add custom styles here if needed, beyond Tailwind */
         [x-cloak] { display: none !important; } /* Hide Alpine elements until initialized */
+
+        /* Styles for custom notifications */
+        #notification-area {
+            position: fixed;
+            top: 1.25rem; /* 20px */
+            right: 1.25rem; /* 20px */
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem; /* 12px */
+        }
+        .notification {
+            padding: 1rem; /* 16px */
+            border-radius: 0.375rem; /* 6px */
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            opacity: 1;
+            transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+            transform: translateX(0);
+            min-width: 250px; /* Minimum width */
+            max-width: 350px; /* Maximum width */
+        }
+        .notification.hide {
+            opacity: 0;
+            transform: translateX(100%); /* Slide out to the right */
+        }
+        .notification-success { background-color: #34D399; /* Tailwind green-500 */ }
+        .notification-danger { background-color: #EF4444; /* Tailwind red-500 */ }
+        .notification-warning { background-color: #F59E0B; /* Tailwind yellow-500 */ }
+        .notification-info { background-color: #3B82F6; /* Tailwind blue-500 */ }
     </style>
     <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
 <body class="bg-gray-100 text-gray-900 min-h-screen flex flex-col">
 
+    {# ** ADDED: Notification Area ** #}
+    <div id="notification-area"></div>
+
     <nav class="bg-blue-600 text-white shadow-md sticky top-0 z-50">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
-            {# ** MODIFIED: Added Logo Placeholder ** #}
             <a href="{{ url_for('main.dashboard') }}" class="flex items-center text-xl font-bold">
-                 {# Add your logo file to static/images/ and uncomment/update the src below #}
-                 <img class="h-8 w-auto mr-2" src="{{ url_for('static', filename='images/logo.png') }}" alt="A3 Mart Logo"
+                 <img class="h-8 w-auto mr-2" src="{{ url_for('static', filename='images/logo_placeholder.png') }}" alt="A3 Mart Logo"
                       onerror="this.onerror=null; this.src='https://placehold.co/100x32/003366/FFFFFF?text=A3Mart&font=sans';" >
                  <span>{{ app_name }}</span>
             </a>
-            <div class="flex items-center space-x-1"> {# Use flex and space-x #}
+            <div class="flex items-center space-x-1">
                 {% if current_user.is_authenticated %}
                     <a href="{{ url_for('main.dashboard') }}" class="px-3 py-2 rounded hover:bg-blue-700">Dashboard</a>
                     <a href="{{ url_for('billing.billing_page') }}" class="px-3 py-2 rounded hover:bg-blue-700">Billing</a>
-                    {# ** RESTORED: Inventory Dropdown with AlpineJS ** #}
                     <div x-data="{ open: false }" @click.outside="open = false" class="relative">
-                        <button @click="open = !open" class="flex items-center px-3 py-2 rounded hover:bg-blue-700 focus:outline-none">
-                            Inventory
+                        <button @click="open = !open" class="flex items-center px-3 py-2 rounded hover:bg-blue-700 focus:outline-none"> Inventory
                             <svg class="w-4 h-4 ml-1 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
                         </button>
-                        <div x-show="open" x-cloak
-                             x-transition:enter="transition ease-out duration-100"
-                             x-transition:enter-start="transform opacity-0 scale-95"
-                             x-transition:enter-end="transform opacity-100 scale-100"
-                             x-transition:leave="transition ease-in duration-75"
-                             x-transition:leave-start="transform opacity-100 scale-100"
-                             x-transition:leave-end="transform opacity-0 scale-95"
-                             class="absolute left-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 text-gray-700">
+                        <div x-show="open" x-cloak x-transition class="absolute left-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 text-gray-700">
                             <a href="{{ url_for('inventory.list_products') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Products</a>
                             <a href="{{ url_for('inventory.list_purchases') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Purchases</a>
                             <a href="{{ url_for('inventory.bulk_upload_stock') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Bulk Stock Upload</a>
@@ -62,26 +82,16 @@
                     </div>
                     <a href="{{ url_for('customers.list_customers') }}" class="px-3 py-2 rounded hover:bg-blue-700">Customers</a>
                     <a href="{{ url_for('billing.list_sales') }}" class="px-3 py-2 rounded hover:bg-blue-700">Sales</a>
-                    {# ** RESTORED: Reports Dropdown with AlpineJS ** #}
                     <div x-data="{ open: false }" @click.outside="open = false" class="relative">
-                        <button @click="open = !open" class="flex items-center px-3 py-2 rounded hover:bg-blue-700 focus:outline-none">
-                            Reports
+                        <button @click="open = !open" class="flex items-center px-3 py-2 rounded hover:bg-blue-700 focus:outline-none"> Reports
                             <svg class="w-4 h-4 ml-1 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
                         </button>
-                        <div x-show="open" x-cloak
-                             x-transition:enter="transition ease-out duration-100"
-                             x-transition:enter-start="transform opacity-0 scale-95"
-                             x-transition:enter-end="transform opacity-100 scale-100"
-                             x-transition:leave="transition ease-in duration-75"
-                             x-transition:leave-start="transform opacity-100 scale-100"
-                             x-transition:leave-end="transform opacity-0 scale-95"
-                             class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 text-gray-700">
+                        <div x-show="open" x-cloak x-transition class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 text-gray-700">
                             <a href="{{ url_for('main.sales_by_date_report') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Sales by Date</a>
                             <a href="{{ url_for('main.monthly_sales_report') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Monthly Sales</a>
                             <a href="{{ url_for('main.product_sales_report') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Product Sales</a>
                         </div>
                     </div>
-
                     <span class="px-3 py-2 text-blue-200">| Hi, {{ current_user.username }}!</span>
                     <a href="{{ url_for('auth.logout') }}" class="px-3 py-2 rounded hover:bg-red-600 bg-red-500 ml-2">Logout</a>
                 {% else %}
@@ -92,6 +102,7 @@
     </nav>
 
     <main class="flex-grow container mx-auto px-4 py-8">
+        {# Flask flashed messages will still work and appear here #}
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 <div class="mb-4 space-y-2">
@@ -105,7 +116,6 @@
                 </div>
             {% endif %}
         {% endwith %}
-
         {% block content %}{% endblock %}
     </main>
 
@@ -116,17 +126,60 @@
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     {% block scripts %}
     <script>
+        // ** ADDED: Global Notification Function **
+        function showAppNotification(message, type = 'info') { // type can be 'success', 'danger', 'warning', 'info'
+            const notificationArea = document.getElementById('notification-area');
+            if (!notificationArea) {
+                console.warn('Notification area #notification-area not found. Falling back to alert.');
+                alert(message);
+                return;
+            }
+
+            const notifDiv = document.createElement('div');
+            notifDiv.textContent = message;
+            notifDiv.classList.add('notification'); // Base class for padding, border-radius, shadow, text color, transition
+
+            // Add type-specific background
+            if (type === 'success') notifDiv.classList.add('notification-success');
+            else if (type === 'danger') notifDiv.classList.add('notification-danger');
+            else if (type === 'warning') notifDiv.classList.add('notification-warning');
+            else notifDiv.classList.add('notification-info'); // Default to info
+
+            notificationArea.appendChild(notifDiv);
+
+            // Trigger fade in (slight delay to allow CSS to apply initial state for transition)
+            setTimeout(() => {
+                notifDiv.style.opacity = '1';
+                notifDiv.style.transform = 'translateX(0)';
+            }, 10);
+
+
+            // Auto-hide after a few seconds
+            setTimeout(() => {
+                notifDiv.classList.add('hide'); // Add class to trigger slide-out and fade-out
+                // Remove the element after the transition completes
+                notifDiv.addEventListener('transitionend', () => {
+                    notifDiv.remove();
+                });
+            }, 4000); // Display for 4 seconds
+        }
+
+
         document.addEventListener('DOMContentLoaded', function() {
             // --- Popup Link Handler ---
             function openPopup(event) { event.preventDefault(); const url = event.currentTarget.href; window.open(url, 'formPopup', 'width=800,height=600,scrollbars=yes,resizable=yes'); }
-            const popupPaths = ["{{ url_for('customers.add_customer') }}", "{{ url_for('inventory.add_product') }}", /* Add edit/adjust paths here */ ];
-            document.querySelectorAll('a').forEach(link => { try { const linkPath = new URL(link.href).pathname; if (popupPaths.includes(linkPath) || link.classList.contains('open-popup')) { link.removeEventListener('click', openPopup); link.addEventListener('click', openPopup); link.removeAttribute('target'); } } catch (e) {} });
-
-            // ** REMOVED: Vanilla JS Dropdown Handler (now handled by AlpineJS) **
-            // function setupDropdown(containerId) { ... }
-            // setupDropdown('reports-dropdown-container');
-            // setupDropdown('inventory-dropdown-container');
-
+            const popupPaths = ["{{ url_for('customers.add_customer') }}", "{{ url_for('inventory.add_product') }}"];
+            document.querySelectorAll('a').forEach(link => {
+                try {
+                    const linkPath = new URL(link.href).pathname;
+                    if (popupPaths.includes(linkPath) || link.classList.contains('open-popup')) {
+                        link.removeEventListener('click', openPopup); // Prevent double-adding
+                        link.addEventListener('click', openPopup);
+                        link.removeAttribute('target');
+                    }
+                } catch (e) {}
+            });
+            // Note: Dropdown logic is now handled by Alpine.js if its CDN is included.
         });
     </script>
     {% endblock %}

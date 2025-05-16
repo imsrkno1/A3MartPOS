@@ -14,146 +14,124 @@ def list_customers():
     """Displays a list of customers with search and pagination."""
     page = request.args.get('page', 1, type=int)
     query = request.args.get('query', '')
-
     customers_query = Customer.query.order_by(Customer.name.asc())
-
-    # Apply search filter if query exists
     if query:
         search_term = f"%{query}%"
         customers_query = customers_query.filter(
-            or_(
-                Customer.name.ilike(search_term),
-                Customer.phone_number.ilike(search_term),
-                Customer.email.ilike(search_term)
-            )
-        )
-
-    # Paginate the results
-    pagination = customers_query.paginate(
-        page=page, per_page=current_app.config.get('ITEMS_PER_PAGE', 15), error_out=False
-    )
+            or_( Customer.name.ilike(search_term), Customer.phone_number.ilike(search_term), Customer.email.ilike(search_term) ))
+    pagination = customers_query.paginate( page=page, per_page=current_app.config.get('ITEMS_PER_PAGE', 15), error_out=False )
     customers = pagination.items
-
-    return render_template(
-        'customers/customers.html',
-        title='Customers',
-        customers=customers,
-        pagination=pagination,
-        query=query # Pass query back to template for search input persistence
-    )
+    return render_template( 'customers/customers.html', title='Customers', customers=customers, pagination=pagination, query=query )
 
 @customers_bp.route('/customers/add', methods=['GET', 'POST'])
 @login_required
 def add_customer():
-    """Handles adding a new customer."""
+    """Handles adding a new customer, with support for modal interaction."""
     form = CustomerForm()
+    # Check if the request is coming from a modal context
+    # We'll use a query parameter `?context=modal` initiated by the billing page JS
+    is_modal_context = request.args.get('context') == 'modal'
+
     if form.validate_on_submit():
-        # Check for uniqueness if phone or email provided
         phone = form.phone_number.data
         email = form.email.data
         conflict = None
-        if phone:
-            conflict = Customer.query.filter_by(phone_number=phone).first()
-        if not conflict and email:
-             conflict = Customer.query.filter_by(email=email).first()
+        if phone: conflict = Customer.query.filter_by(phone_number=phone).first()
+        if not conflict and email: conflict = Customer.query.filter_by(email=email).first()
 
         if conflict:
              flash('A customer with this phone number or email already exists.', 'warning')
-             return render_template('customers/customer_form.html', title='Add Customer', form=form, form_action='Add')
+             # If in modal, re-render form with error, else redirect for standalone page
+             if is_modal_context:
+                 return render_template('customers/customer_form_content.html', form=form, form_action='Add', is_modal=True) # New template for modal content
+             else:
+                 return render_template('customers/customer_form.html', title='Add Customer', form=form, form_action='Add')
 
-        new_customer = Customer(
-            name=form.name.data,
-            phone_number=phone,
-            email=email,
-            address=form.address.data
-        )
+
+        new_customer = Customer( name=form.name.data, phone_number=phone, email=email, address=form.address.data )
         db.session.add(new_customer)
         try:
             db.session.commit()
             flash(f'Customer "{new_customer.name}" added successfully!', 'success')
-            # Redirect to customer list or maybe back to billing if added from there?
-            # For now, redirect to list.
-            return redirect(url_for('customers.list_customers'))
+
+            if is_modal_context:
+                # If successful and in modal, send back JS to close modal and pass data
+                return render_template('customers/modal_success_close.html',
+                                       customer_id=new_customer.id,
+                                       customer_name=new_customer.name,
+                                       customer_phone=new_customer.phone_number,
+                                       customer_email=new_customer.email)
+            else:
+                return redirect(url_for('customers.list_customers'))
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error adding customer: {e}")
             flash(f'Error adding customer. Please check logs.', 'danger')
+            if is_modal_context:
+                 return render_template('customers/customer_form_content.html', form=form, form_action='Add', is_modal=True)
 
-    # If GET request or form validation failed
-    return render_template('customers/customer_form.html', title='Add Customer', form=form, form_action='Add')
+
+    # For GET request or initial form display
+    if is_modal_context:
+        # Render only the form content for the iframe/modal
+        return render_template('customers/customer_form_content.html', form=form, form_action='Add', is_modal=True)
+    else:
+        # Render the full page with base template
+        return render_template('customers/customer_form.html', title='Add Customer', form=form, form_action='Add')
+
 
 @customers_bp.route('/customers/edit/<int:customer_id>', methods=['GET', 'POST'])
 @login_required
 def edit_customer(customer_id):
     """Handles editing an existing customer."""
     customer = Customer.query.get_or_404(customer_id)
-    form = CustomerForm(obj=customer) # Pre-populate form
+    form = CustomerForm(obj=customer)
+    is_modal_context = request.args.get('context') == 'modal' # Check for modal context
 
     if form.validate_on_submit():
-        # Check for uniqueness conflicts excluding self
-        phone = form.phone_number.data
-        email = form.email.data
-        conflict = None
-
-        if phone:
-            conflict = Customer.query.filter(Customer.id != customer_id, Customer.phone_number == phone).first()
-        if not conflict and email:
-             conflict = Customer.query.filter(Customer.id != customer_id, Customer.email == email).first()
-
+        phone = form.phone_number.data; email = form.email.data; conflict = None
+        if phone: conflict = Customer.query.filter(Customer.id != customer_id, Customer.phone_number == phone).first()
+        if not conflict and email: conflict = Customer.query.filter(Customer.id != customer_id, Customer.email == email).first()
         if conflict:
              flash('Another customer with this phone number or email already exists.', 'warning')
-             return render_template('customers/customer_form.html', title='Edit Customer', form=form, customer=customer, form_action='Edit')
+             if is_modal_context:
+                  return render_template('customers/customer_form_content.html', form=form, customer=customer, form_action='Edit', is_modal=True)
+             else:
+                  return render_template('customers/customer_form.html', title='Edit Customer', form=form, customer=customer, form_action='Edit')
 
-
-        customer.name = form.name.data
-        customer.phone_number = phone
-        customer.email = email
-        customer.address = form.address.data
-
+        customer.name = form.name.data; customer.phone_number = phone
+        customer.email = email; customer.address = form.address.data
         try:
             db.session.commit()
             flash(f'Customer "{customer.name}" updated successfully!', 'success')
-            return redirect(url_for('customers.list_customers'))
+            if is_modal_context:
+                # Similar success close for edit if needed, or just close and refresh parent
+                return render_template('customers/modal_success_close.html',
+                                       customer_id=customer.id,
+                                       customer_name=customer.name,
+                                       customer_phone=customer.phone_number,
+                                       customer_email=customer.email,
+                                       refresh_parent=True) # Signal parent to refresh if needed
+            else:
+                return redirect(url_for('customers.list_customers'))
         except Exception as e:
-            db.session.rollback()
-            current_app.logger.error(f"Error updating customer: {e}")
-            flash(f'Error updating customer. Please check logs.', 'danger')
+            db.session.rollback(); current_app.logger.error(f"Error updating customer: {e}")
+            flash(f'Error updating customer.', 'danger')
+            if is_modal_context:
+                return render_template('customers/customer_form_content.html', form=form, customer=customer, form_action='Edit', is_modal=True)
 
-    # If GET request or form validation failed
-    return render_template('customers/customer_form.html', title='Edit Customer', form=form, customer=customer, form_action='Edit')
+    if is_modal_context:
+        return render_template('customers/customer_form_content.html', form=form, customer=customer, form_action='Edit', is_modal=True)
+    else:
+        return render_template('customers/customer_form.html', title='Edit Customer', form=form, customer=customer, form_action='Edit')
 
 
-# --- Customer Search API (Helper for Billing form) ---
 @customers_bp.route('/api/customers/search')
 @login_required
 def search_customers_api():
-    """API endpoint to search customers for dynamic forms (e.g., billing)."""
-    query = request.args.get('q', '')
-    limit = request.args.get('limit', 10, type=int)
-
-    if not query:
-        return jsonify([])
-
+    query = request.args.get('q', ''); limit = request.args.get('limit', 10, type=int)
+    if not query: return jsonify([])
     search_term = f"%{query}%"
-    customers = Customer.query.filter(
-        or_(
-            Customer.name.ilike(search_term),
-            Customer.phone_number.ilike(search_term),
-            Customer.email.ilike(search_term)
-        )
-    ).limit(limit).all()
-
-    # Format results for easy use in JavaScript
-    results = [
-        {
-            'id': c.id,
-            'text': f"{c.name} ({c.phone_number or c.email or 'No Contact'})", # Display text
-            'name': c.name,
-            'phone': c.phone_number,
-            'email': c.email
-        }
-        for c in customers
-    ]
+    customers = Customer.query.filter( or_( Customer.name.ilike(search_term), Customer.phone_number.ilike(search_term), Customer.email.ilike(search_term) )).limit(limit).all()
+    results = [ { 'id': c.id, 'text': f"{c.name} ({c.phone_number or c.email or 'No Contact'})", 'name': c.name, 'phone': c.phone_number, 'email': c.email } for c in customers ]
     return jsonify(results)
-
-# Add routes for deleting customers if needed
