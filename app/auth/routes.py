@@ -1,62 +1,72 @@
 # app/auth/routes.py
-from flask import render_template, redirect, url_for, flash, request
+from flask import render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_user, logout_user, login_required, current_user
-# Updated import: Use urllib.parse instead of werkzeug.urls
 from urllib.parse import urlparse, urljoin
 
-from . import auth_bp # Import the blueprint instance from app/auth/__init__.py
-from ..models import User # Import the User model
-from ..forms import LoginForm # Import the LoginForm
-from .. import db # Import the database instance
+from . import auth_bp
+from ..models import User
+from ..forms import LoginForm, RegistrationForm # Import RegistrationForm
+from .. import db
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     """Handles user login."""
-    # Redirect if already logged in
     if current_user.is_authenticated:
         return redirect(url_for('main.dashboard'))
-
     form = LoginForm()
-    # Process form submission
     if form.validate_on_submit():
-        # Find user by username
         user = User.query.filter_by(username=form.username.data).first()
-
-        # Validate user and password
         if user is None or not user.check_password(form.password.data):
             flash('Invalid username or password', 'danger')
-            return redirect(url_for('auth.login')) # Redirect back to login on failure
-
-        # Log user in
+            return redirect(url_for('auth.login'))
         login_user(user, remember=form.remember_me.data)
-        flash(f'Welcome back, {user.username}!', 'success')
-
-        # Update last login time (optional)
         try:
-            user.last_login = db.func.now() # Use db.func for database functions
+            user.last_login = db.func.now()
             db.session.commit()
         except Exception as e:
-            # Log error if update fails, but don't block login
             current_app.logger.error(f"Error updating last_login for user {user.username}: {e}")
-            db.session.rollback() # Rollback the specific change
-
-        # --- Redirect Logic Updated ---
+            db.session.rollback()
         next_page = request.args.get('next')
-        # Security check: ensure next_page is a relative path within our site
         if not next_page or urlparse(next_page).netloc != '':
-            next_page = url_for('main.dashboard') # Default redirect to dashboard
-
+            next_page = url_for('main.dashboard')
         return redirect(next_page)
-        # --- End of Update ---
-
-    # Render login page for GET request or failed validation
     return render_template('auth/login.html', title='Sign In', form=form)
 
 
 @auth_bp.route('/logout')
-@login_required # Ensure user is logged in to access logout
+@login_required
 def logout():
     """Handles user logout."""
-    logout_user() # Log the user out
-    flash('You have been logged out.', 'info') # Inform user
-    return redirect(url_for('auth.login')) # Redirect to login page
+    logout_user()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('auth.login'))
+
+# --- NEW: Registration Route ---
+@auth_bp.route('/register', methods=['GET', 'POST'])
+def register():
+    """Handles user registration. The first registered user becomes an admin."""
+    if current_user.is_authenticated:
+        return redirect(url_for('main.dashboard')) # Redirect if already logged in
+
+    form = RegistrationForm()
+    if form.validate_on_submit():
+        # Check if any admin user already exists
+        admin_exists = User.query.filter_by(is_admin=True).first()
+        is_first_admin = not admin_exists # This new user will be the first admin
+
+        new_user = User(username=form.username.data, is_admin=is_first_admin)
+        new_user.set_password(form.password.data)
+        db.session.add(new_user)
+        try:
+            db.session.commit()
+            if is_first_admin:
+                flash(f'Congratulations! Admin account "{new_user.username}" registered successfully. Please log in.', 'success')
+            else:
+                flash(f'Account "{new_user.username}" registered successfully. Please log in.', 'success')
+            return redirect(url_for('auth.login'))
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error during registration: {e}")
+            flash('An error occurred during registration. Please try again.', 'danger')
+
+    return render_template('auth/register.html', title='Register', form=form)
