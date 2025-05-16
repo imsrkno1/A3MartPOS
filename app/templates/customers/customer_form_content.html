@@ -1,52 +1,80 @@
 {# This template only contains the form content for modal display #}
-<div class="p-2 md:p-6"> {# Reduced padding for modal context #}
-    <h1 class="text-xl font-bold text-gray-800 mb-4">{{ form_action }} Customer</h1>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ form_action }} Customer</title>
+    {# ** ADDED: Tailwind CSS and Font for modal ** #}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9fafb; /* A light gray, similar to bg-gray-50 */
+        }
+        /* Adjustments for modal context if needed */
+        .modal-content-wrapper {
+            max-width: 500px; /* Limit width within the modal/iframe */
+            margin: 1rem auto; /* Centering and some margin */
+        }
+    </style>
+</head>
+<body class="p-0 m-0"> {# Remove body padding/margin for iframe #}
+    <div class="modal-content-wrapper p-4 md:p-6 bg-white rounded-lg shadow-md"> {# Added wrapper with styling #}
+        <h1 class="text-xl font-bold text-gray-800 mb-4">{{ form_action }} Customer</h1>
 
-     {# Flash Messages within modal if any #}
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <div class="mb-4 space-y-2">
-                {% for category, message in messages %}
-                    {% set category_class = 'bg-blue-100 border-blue-500 text-blue-700' %}
-                    {% if category == 'success' %}{% set category_class = 'bg-green-100 border-green-500 text-green-700' %}{% endif %}
-                    {% if category == 'warning' %}{% set category_class = 'bg-yellow-100 border-yellow-500 text-yellow-700' %}{% endif %}
-                    {% if category == 'danger' %}{% set category_class = 'bg-red-100 border-red-500 text-red-700' %}{% endif %}
-                    <div class="border-l-4 p-3 rounded-md {{ category_class }} text-sm" role="alert"><p>{{ message }}</p></div>
-                {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
+         {# Flash Messages within modal if any #}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="mb-4 space-y-2">
+                    {% for category, message in messages %}
+                        {% set category_class = 'bg-blue-100 border-blue-500 text-blue-700' %}
+                        {% if category == 'success' %}{% set category_class = 'bg-green-100 border-green-500 text-green-700' %}{% endif %}
+                        {% if category == 'warning' %}{% set category_class = 'bg-yellow-100 border-yellow-500 text-yellow-700' %}{% endif %}
+                        {% if category == 'danger' %}{% set category_class = 'bg-red-100 border-red-500 text-red-700' %}{% endif %}
+                        <div class="border-l-4 p-3 rounded-md {{ category_class }} text-sm" role="alert"><p>{{ message }}</p></div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
 
-    <form method="POST" action="{{ url_for('customers.add_customer' if form_action == 'Add' else 'customers.edit_customer', customer_id=customer.id if customer else None, context='modal') }}" novalidate>
-        {{ form.hidden_tag() }} {# CSRF Token #}
-        <div class="space-y-3">
-            <div>
-                {{ form.name.label(class="block text-sm font-medium text-gray-700 mb-1") }}
-                {{ form.name(class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3", placeholder="Enter customer name") }}
-                {% for error in form.name.errors %}<p class="text-red-500 text-xs italic mt-1">{{ error }}</p>{% endfor %}
+        <form method="POST" action="{{ url_for('customers.add_customer' if form_action == 'Add' else 'customers.edit_customer', customer_id=customer.id if customer else None, context='modal') }}" novalidate>
+            {{ form.hidden_tag() }} {# CSRF Token #}
+            <div class="space-y-4"> {# Increased spacing #}
+                <div>
+                    {{ form.name.label(class="block text-sm font-medium text-gray-700 mb-1") }}
+                    {{ form.name(class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm", placeholder="Enter customer name") }}
+                    {% for error in form.name.errors %}<p class="text-red-500 text-xs italic mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    {{ form.phone_number.label(class="block text-sm font-medium text-gray-700 mb-1") }}
+                    {{ form.phone_number(class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm", placeholder="Optional phone number") }}
+                    {% for error in form.phone_number.errors %}<p class="text-red-500 text-xs italic mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    {{ form.email.label(class="block text-sm font-medium text-gray-700 mb-1") }}
+                    {{ form.email(type="email", class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm", placeholder="Optional email address") }}
+                    {% for error in form.email.errors %}<p class="text-red-500 text-xs italic mt-1">{{ error }}</p>{% endfor %}
+                </div>
+                <div>
+                    {{ form.address.label(class="block text-sm font-medium text-gray-700 mb-1") }}
+                    {{ form.address(rows=3, class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm", placeholder="Optional address details") }}
+                    {% for error in form.address.errors %}<p class="text-red-500 text-xs italic mt-1">{{ error }}</p>{% endfor %}
+                </div>
             </div>
-            <div>
-                {{ form.phone_number.label(class="block text-sm font-medium text-gray-700 mb-1") }}
-                {{ form.phone_number(class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3", placeholder="Optional phone number") }}
-                {% for error in form.phone_number.errors %}<p class="text-red-500 text-xs italic mt-1">{{ error }}</p>{% endfor %}
+            <div class="mt-6 pt-4 border-t border-gray-200">
+                <div class="flex justify-end">
+                     {# The modal itself will have a close button, so a specific "Cancel" here might be redundant #}
+                     {# Or, you can add a JS function to close the modal:
+                     <button type="button" onclick="window.parent.closeCustomerModal();" class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                     #}
+                    {{ form.submit(value=form_action + ' Customer', class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer") }}
+                </div>
             </div>
-            <div>
-                {{ form.email.label(class="block text-sm font-medium text-gray-700 mb-1") }}
-                {{ form.email(type="email", class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3", placeholder="Optional email address") }}
-                {% for error in form.email.errors %}<p class="text-red-500 text-xs italic mt-1">{{ error }}</p>{% endfor %}
-            </div>
-            <div>
-                {{ form.address.label(class="block text-sm font-medium text-gray-700 mb-1") }}
-                {{ form.address(rows=2, class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border border-gray-300 rounded-md py-2 px-3", placeholder="Optional address details") }}
-                {% for error in form.address.errors %}<p class="text-red-500 text-xs italic mt-1">{{ error }}</p>{% endfor %}
-            </div>
-        </div>
-        <div class="mt-6 pt-4 border-t border-gray-200">
-            <div class="flex justify-end">
-                 {# For modal, cancel might be handled by modal's close button #}
-                 {# <button type="button" onclick="window.parent.closeCustomerModal();" class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button> #}
-                {{ form.submit(value=form_action + ' Customer', class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer") }}
-            </div>
-        </div>
-    </form>
-</div>
+        </form>
+    </div>
+</body>
+</html>

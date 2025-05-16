@@ -130,8 +130,8 @@
             selectCustomer(customerData); // This function needs to be defined in the scope below
             showAppNotification(`Customer "${customerData.name}" added and selected!`, 'success');
         }
-        customerModal.classList.add('hidden');
-        customerFormIframe.src = 'about:blank';
+        if (customerModal) customerModal.classList.add('hidden');
+        if (customerFormIframe) customerFormIframe.src = 'about:blank';
     }
 
     document.addEventListener('DOMContentLoaded', function() {
@@ -164,23 +164,29 @@
         const addNewCustomerModalBtn = document.getElementById('add-new-customer-modal-btn');
         const closeCustomerModalXBtn = document.getElementById('close-customer-modal-btn');
 
-        let billingItems = []; let selectedCustomerId = null; let selectedCustomerPhone = null;
-        let lastReceiptText = ''; let productSearchTimeout; let customerSearchTimeout;
+        let billingItems = [];
+        let selectedCustomerId = null;
+        let selectedCustomerPhoneForNextBill = null; // For the customer selection UI
+        // ** MODIFIED: Variables for the current receipt's data **
+        let currentReceiptText = '';
+        let currentReceiptCustomerPhone = null;
+
+        let productSearchTimeout;
+        let customerSearchTimeout;
 
         function formatCurrency(amount) { return `₹${parseFloat(amount || 0).toFixed(2)}`; }
 
-        // Function 'selectCustomer' needs to be defined here or ensure it's globally accessible
-        // if handleCustomerAdded is to call it. For simplicity, moving it here.
-        // This function is defined within the DOMContentLoaded scope
         function selectCustomer(customer) {
+             console.log("selectCustomer called. Customer data from API:", customer);
              selectedCustomerId = customer.id;
-             selectedCustomerPhone = customer.phone || null;
-             selectedCustomerNameSpan.textContent = customer.name;
-             selectedCustomerPhoneSpan.textContent = selectedCustomerPhone ? `(${selectedCustomerPhone})` : '';
-             selectedCustomerInfoDiv.classList.remove('hidden');
-             customerSearchInput.value = '';
-             customerSearchResultsDiv.classList.add('hidden');
-             if (whatsappReceiptBtn) whatsappReceiptBtn.disabled = !selectedCustomerPhone;
+             selectedCustomerPhoneForNextBill = customer.phone || null; // This is for the UI before sale
+             console.log("selectedCustomerPhoneForNextBill after selection:", selectedCustomerPhoneForNextBill);
+             if(selectedCustomerNameSpan) selectedCustomerNameSpan.textContent = customer.name;
+             if(selectedCustomerPhoneSpan) selectedCustomerPhoneSpan.textContent = selectedCustomerPhoneForNextBill ? `(${selectedCustomerPhoneForNextBill})` : '';
+             if(selectedCustomerInfoDiv) selectedCustomerInfoDiv.classList.remove('hidden');
+             if(customerSearchInput) customerSearchInput.value = '';
+             if(customerSearchResultsDiv) customerSearchResultsDiv.classList.add('hidden');
+             // Note: WhatsApp button is enabled based on data from *after* sale processing
         }
 
         function fetchAndDisplayProducts(query) { if (query.length < 1) { productSearchResultsDiv.innerHTML = ''; productSearchResultsDiv.classList.add('hidden'); return; } productSearchResultsDiv.classList.remove('hidden'); productSearchResultsDiv.innerHTML = '<div class="p-2 text-sm text-gray-500">Searching...</div>'; clearTimeout(productSearchTimeout); productSearchTimeout = setTimeout(() => { fetch(`{{ url_for('inventory.search_products_api') }}?q=${encodeURIComponent(query)}`).then(response => response.json()).then(data => { productSearchResultsDiv.innerHTML = ''; if (data && data.length > 0) { data.forEach(product => { const div = document.createElement('div'); div.classList.add('p-2', 'text-sm', 'cursor-pointer', 'hover:bg-gray-100'); div.textContent = product.text; div.addEventListener('click', () => addBillingItem(product)); productSearchResultsDiv.appendChild(div); }); } else { productSearchResultsDiv.innerHTML = '<div class="p-2 text-sm text-gray-500">No products found.</div>'; } }).catch(error => { console.error('Error fetching products:', error); productSearchResultsDiv.innerHTML = '<div class="p-2 text-sm text-red-500">Error searching.</div>'; }); }, 150); }
@@ -199,24 +205,103 @@
         function updateSummary() { let currentSubtotal = 0; let currentDiscount = 0; billingItems.forEach(item => { currentSubtotal += (item.quantity || 0) * (item.price_at_sale || 0); currentDiscount += (item.discount_applied || 0); }); const currentTotal = currentSubtotal - currentDiscount; subtotalCell.textContent = formatCurrency(currentSubtotal); discountCell.textContent = `- ${formatCurrency(currentDiscount)}`; totalCell.textContent = formatCurrency(currentTotal); if(processSaleButton) processSaleButton.disabled = billingItems.length === 0; }
         function fetchAndDisplayCustomers(query) { if (query.length < 2) { customerSearchResultsDiv.innerHTML = ''; customerSearchResultsDiv.classList.add('hidden'); return; } customerSearchResultsDiv.classList.remove('hidden'); customerSearchResultsDiv.innerHTML = '<div class="p-2 text-sm text-gray-500">Searching...</div>'; clearTimeout(customerSearchTimeout); customerSearchTimeout = setTimeout(() => { fetch(`{{ url_for('customers.search_customers_api') }}?q=${encodeURIComponent(query)}`).then(response => response.json()).then(data => { customerSearchResultsDiv.innerHTML = ''; if (data && data.length > 0) { data.forEach(customer => { const div = document.createElement('div'); div.classList.add('p-2', 'text-sm', 'cursor-pointer', 'hover:bg-gray-100'); div.textContent = customer.text; div.dataset.customerId = customer.id; div.dataset.customerName = customer.name; div.dataset.customerPhone = customer.phone || ''; div.addEventListener('click', () => selectCustomer(customer)); customerSearchResultsDiv.appendChild(div); }); } else { customerSearchResultsDiv.innerHTML = '<div class="p-2 text-sm text-gray-500">No customers found.</div>'; } }).catch(error => { console.error('Error fetching customers:', error); customerSearchResultsDiv.innerHTML = '<div class="p-2 text-sm text-red-500">Error searching.</div>'; }); }, 300); }
         if(customerSearchInput) customerSearchInput.addEventListener('input', () => fetchAndDisplayCustomers(customerSearchInput.value.trim()));
-        if(removeCustomerBtn) removeCustomerBtn.addEventListener('click', () => { selectedCustomerId = null; selectedCustomerPhone = null; selectedCustomerInfoDiv.classList.add('hidden'); selectedCustomerNameSpan.textContent = ''; selectedCustomerPhoneSpan.textContent = ''; if(customerSearchInput) customerSearchInput.value = ''; if(whatsappReceiptBtn) whatsappReceiptBtn.disabled = true; });
+        if(removeCustomerBtn) removeCustomerBtn.addEventListener('click', () => { selectedCustomerId = null; selectedCustomerPhoneForNextBill = null; if(selectedCustomerInfoDiv) selectedCustomerInfoDiv.classList.add('hidden'); if(selectedCustomerNameSpan) selectedCustomerNameSpan.textContent = ''; if(selectedCustomerPhoneSpan) selectedCustomerPhoneSpan.textContent = ''; if(customerSearchInput) customerSearchInput.value = ''; /* Don't disable whatsapp button here, use currentReceiptCustomerPhone */ });
         document.addEventListener('click', function(event) { if (productSearchInput && !productSearchInput.contains(event.target) && !productSearchResultsDiv.contains(event.target)) { productSearchResultsDiv.classList.add('hidden'); } if (customerSearchInput && !customerSearchInput.contains(event.target) && !customerSearchResultsDiv.contains(event.target)) { customerSearchResultsDiv.classList.add('hidden'); } });
-        if(processSaleButton) processSaleButton.addEventListener('click', function() { if (billingItems.length === 0) { showAppNotification("Cannot process an empty bill.", 'warning'); return; } const saleData = { customer_id: selectedCustomerId, payment_method: paymentMethodSelect.value, notes: notesTextarea.value.trim(), items: billingItems.map(item => ({ product_id: item.product_id, quantity: item.quantity, price_at_sale: item.price_at_sale, discount_applied: item.discount_applied }))}; processSaleButton.disabled = true; processSaleButton.textContent = 'Processing...'; fetch("{{ url_for('billing.process_sale') }}", { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }, body: JSON.stringify(saleData) }).then(response => response.json()).then(data => { if (data.status === 'success') { lastReceiptText = data.thermal_receipt; selectedCustomerPhone = data.receipt_data?.customer_phone || null; if(whatsappReceiptBtn) whatsappReceiptBtn.disabled = !selectedCustomerPhone; if(receiptContentPre) receiptContentPre.textContent = lastReceiptText; if(receiptModal) receiptModal.classList.remove('hidden'); billingItems = []; selectedCustomerId = null; selectedCustomerPhone = null; if(selectedCustomerInfoDiv) selectedCustomerInfoDiv.classList.add('hidden'); if(selectedCustomerNameSpan) selectedCustomerNameSpan.textContent = ''; if(selectedCustomerPhoneSpan) selectedCustomerPhoneSpan.textContent = ''; if(customerSearchInput) customerSearchInput.value = ''; if(notesTextarea) notesTextarea.value = ''; if(paymentMethodSelect) paymentMethodSelect.value = 'Cash'; renderBillingTable(); showAppNotification(data.message, 'success'); } else { showAppNotification(`Error: ${data.message}`, 'danger'); } }).catch(error => { console.error('Error processing sale:', error); showAppNotification('An unexpected network or server error occurred.', 'danger'); }).finally(() => { if(processSaleButton) {processSaleButton.disabled = billingItems.length === 0; processSaleButton.textContent = 'Process Sale';} }); });
-        if(closeReceiptModalBtn) closeReceiptModalBtn.addEventListener('click', () => { if(receiptModal) receiptModal.classList.add('hidden'); });
+
+        if(processSaleButton) processSaleButton.addEventListener('click', function() {
+            if (billingItems.length === 0) {
+                showAppNotification("Cannot process an empty bill.", 'warning'); return;
+            }
+            console.log("Processing sale for customer ID (main UI):", selectedCustomerId); // Use selectedCustomerId
+
+            const saleData = {
+                customer_id: selectedCustomerId, // Use the customer ID selected in the UI
+                payment_method: paymentMethodSelect.value,
+                notes: notesTextarea.value.trim(),
+                items: billingItems.map(item => ({
+                    product_id: item.product_id, quantity: item.quantity,
+                    price_at_sale: item.price_at_sale, discount_applied: item.discount_applied
+                }))
+            };
+            processSaleButton.disabled = true; processSaleButton.textContent = 'Processing...';
+            fetch("{{ url_for('billing.process_sale') }}", {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify(saleData)
+            }).then(response => response.json()).then(data => {
+                if (data.status === 'success') {
+                    currentReceiptText = data.thermal_receipt; // Store for current receipt modal
+                    currentReceiptCustomerPhone = data.receipt_data?.customer_phone || null; // Store for current receipt modal
+                    console.log("Data from process_sale (success):", data);
+                    console.log("currentReceiptCustomerPhone after sale process:", currentReceiptCustomerPhone);
+
+                    if(whatsappReceiptBtn) whatsappReceiptBtn.disabled = !currentReceiptCustomerPhone;
+                    if(receiptContentPre) receiptContentPre.textContent = currentReceiptText;
+                    if(receiptModal) receiptModal.classList.remove('hidden');
+
+                    // Clear form for next sale
+                    billingItems = [];
+                    selectedCustomerId = null;
+                    selectedCustomerPhoneForNextBill = null; // Clear UI selection phone
+                    if(selectedCustomerInfoDiv) selectedCustomerInfoDiv.classList.add('hidden');
+                    if(selectedCustomerNameSpan) selectedCustomerNameSpan.textContent = '';
+                    if(selectedCustomerPhoneSpan) selectedCustomerPhoneSpan.textContent = '';
+                    if(customerSearchInput) customerSearchInput.value = '';
+                    if(notesTextarea) notesTextarea.value = '';
+                    if(paymentMethodSelect) paymentMethodSelect.value = 'Cash';
+                    renderBillingTable();
+                    showAppNotification(data.message, 'success');
+                } else {
+                    showAppNotification(`Error: ${data.message}`, 'danger');
+                }
+            }).catch(error => {
+                console.error('Error processing sale:', error);
+                showAppNotification('An unexpected network or server error occurred.', 'danger');
+            }).finally(() => {
+                if(processSaleButton) {
+                    processSaleButton.disabled = billingItems.length === 0;
+                    processSaleButton.textContent = 'Process Sale';
+                }
+            });
+        });
+
+        if(closeReceiptModalBtn) closeReceiptModalBtn.addEventListener('click', () => {
+            if(receiptModal) receiptModal.classList.add('hidden');
+            currentReceiptCustomerPhone = null; // Clear specific receipt data when modal closes
+            currentReceiptText = '';
+            if(whatsappReceiptBtn) whatsappReceiptBtn.disabled = true; // Disable button when modal closes
+        });
         if(printReceiptBtn) printReceiptBtn.addEventListener('click', () => { /* ... existing print logic ... */ });
-        if(whatsappReceiptBtn) whatsappReceiptBtn.addEventListener('click', () => { if (!selectedCustomerPhone) { showAppNotification("No customer phone number available for this sale.", 'warning'); return; } if (!lastReceiptText) { showAppNotification("Receipt data not available.", 'warning'); return; } let cleanPhone = selectedCustomerPhone.replace(/[\s\-()]/g, ''); if (cleanPhone.length === 10) { cleanPhone = `91${cleanPhone}`; } else if (cleanPhone.startsWith('+')) { cleanPhone = cleanPhone.substring(1); } if (!/^\d+$/.test(cleanPhone)) { showAppNotification("Invalid phone number format for WhatsApp.", 'danger'); return; } const whatsappMessage = encodeURIComponent(lastReceiptText); const whatsappUrl = `https://wa.me/${cleanPhone}?text=${whatsappMessage}`; window.open(whatsappUrl, '_blank'); });
+
+        if(whatsappReceiptBtn) whatsappReceiptBtn.addEventListener('click', () => {
+            // ** MODIFIED: Use currentReceiptCustomerPhone and currentReceiptText **
+            if (!currentReceiptCustomerPhone) {
+                showAppNotification("No customer phone number available for this displayed sale.", 'warning');
+                return;
+            }
+            if (!currentReceiptText) {
+                showAppNotification("Receipt data not available for this displayed sale.", 'warning');
+                return;
+            }
+            let cleanPhone = currentReceiptCustomerPhone.replace(/[\s\-()]/g, '');
+            if (cleanPhone.length === 10 && !cleanPhone.startsWith('91')) { cleanPhone = `91${cleanPhone}`; }
+            else if (cleanPhone.startsWith('+')) { cleanPhone = cleanPhone.substring(1); }
+            if (!/^\d+$/.test(cleanPhone)) { showAppNotification("Invalid phone number format for WhatsApp. Ensure it includes country code if not 10 digits.", 'danger'); return; }
+            const whatsappMessage = encodeURIComponent(currentReceiptText);
+            const whatsappUrl = `https://wa.me/${cleanPhone}?text=${whatsappMessage}`;
+            window.open(whatsappUrl, '_blank');
+        });
 
         // --- Customer Modal Logic ---
         if (addNewCustomerModalBtn) {
             addNewCustomerModalBtn.addEventListener('click', function() {
-                customerFormIframe.src = "{{ url_for('customers.add_customer') }}?context=modal";
-                customerFormModal.classList.remove('hidden');
+                if(customerFormIframe) customerFormIframe.src = "{{ url_for('customers.add_customer') }}?context=modal";
+                if(customerFormModal) customerFormModal.classList.remove('hidden');
             });
         }
         if (closeCustomerModalXBtn) {
             closeCustomerModalXBtn.addEventListener('click', function() {
-                customerFormModal.classList.add('hidden');
-                customerFormIframe.src = 'about:blank'; // Clear iframe
+                if(customerFormModal) customerFormModal.classList.add('hidden');
+                if(customerFormIframe) customerFormIframe.src = 'about:blank'; // Clear iframe
             });
         }
 

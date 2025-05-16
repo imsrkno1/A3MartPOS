@@ -23,11 +23,9 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # --- Product Routes ---
-# ... (list_products, add_product, edit_product routes remain the same) ...
 @inventory_bp.route('/products')
 @login_required
 def list_products():
-    """Displays a list of products with search and pagination."""
     page = request.args.get('page', 1, type=int)
     query = request.args.get('query', '')
     low_stock_filter = request.args.get('low_stock', 'false').lower() == 'true'
@@ -49,7 +47,6 @@ def list_products():
 @inventory_bp.route('/products/add', methods=['GET', 'POST'])
 @login_required
 def add_product():
-    """Handles adding a new product."""
     form = ProductForm()
     if form.validate_on_submit():
         barcode_to_save = form.barcode.data
@@ -74,7 +71,8 @@ def add_product():
         new_product = Product( name=form.name.data, description=form.description.data, barcode=barcode_to_save,
             sku=form.sku.data, category=form.category.data, brand=form.brand.data, purchase_price=form.purchase_price.data,
             selling_price=form.selling_price.data, stock_quantity=form.stock_quantity.data,
-            low_stock_threshold=form.low_stock_threshold.data, discount_percent=form.discount_percent.data, is_active=True )
+            low_stock_threshold=form.low_stock_threshold.data, discount_percent=form.discount_percent.data, is_active=True,
+            expiry_date=form.expiry_date.data )
         db.session.add(new_product)
         try:
             db.session.commit(); flash(f'Product "{new_product.name}" added successfully!', 'success')
@@ -87,7 +85,6 @@ def add_product():
 @inventory_bp.route('/products/edit/<int:product_id>', methods=['GET', 'POST'])
 @login_required
 def edit_product(product_id):
-    """Handles editing an existing product."""
     product = Product.query.get_or_404(product_id)
     form = ProductForm(obj=product)
     if form.validate_on_submit():
@@ -105,20 +102,21 @@ def edit_product(product_id):
         product.sku=new_sku; product.category=form.category.data; product.brand=form.brand.data
         product.purchase_price=form.purchase_price.data; product.selling_price=form.selling_price.data
         product.low_stock_threshold=form.low_stock_threshold.data; product.discount_percent=form.discount_percent.data
+        product.expiry_date=form.expiry_date.data
         try:
             db.session.commit(); flash(f'Product "{product.name}" updated successfully!', 'success')
             return redirect(url_for('inventory.list_products'))
         except Exception as e:
             db.session.rollback(); current_app.logger.error(f"Error updating product: {e}")
             flash(f'Error updating product.', 'danger')
+    if request.method == 'GET' and product.expiry_date:
+        form.expiry_date.data = product.expiry_date
     return render_template('inventory/product_form.html', title='Edit Product', form=form, product=product, form_action='Edit')
 
 # --- Purchase Routes ---
-# ... (list_purchases, add_purchase, generate_low_stock_order routes remain the same) ...
 @inventory_bp.route('/purchases')
 @login_required
 def list_purchases():
-    """Displays a list of purchase entries with pagination."""
     page = request.args.get('page', 1, type=int)
     purchases_query = Purchase.query.order_by(Purchase.purchase_date.desc())
     pagination = purchases_query.paginate( page=page, per_page=current_app.config.get('ITEMS_PER_PAGE', 15), error_out=False )
@@ -128,7 +126,6 @@ def list_purchases():
 @inventory_bp.route('/purchases/add', methods=['GET', 'POST'])
 @login_required
 def add_purchase():
-    """Handles adding a new purchase record and its items."""
     form = PurchaseForm(); prefill_items = None
     if request.method == 'GET':
         if 'prefill_purchase_items' in session:
@@ -168,7 +165,6 @@ def add_purchase():
 @inventory_bp.route('/inventory/generate-low-stock-order', methods=['POST'])
 @login_required
 def generate_low_stock_order():
-    """Finds low stock items and redirects to purchase form with pre-filled data."""
     try:
         low_stock_products = Product.query.filter( Product.stock_quantity <= Product.low_stock_threshold, Product.is_active == True ).all()
         if not low_stock_products: flash('No items are currently below the low stock threshold.', 'info'); return redirect(url_for('main.dashboard'))
@@ -188,7 +184,6 @@ def generate_low_stock_order():
 @inventory_bp.route('/api/products/search')
 @login_required
 def search_products_api():
-    """API endpoint to search products for dynamic forms."""
     query = request.args.get('q', ''); limit = request.args.get('limit', 10, type=int)
     if not query: return jsonify([])
     search_term = f"%{query}%"
@@ -196,65 +191,68 @@ def search_products_api():
     results = [ { 'id': p.id, 'text': f"{p.name} (Barcode: {p.barcode or 'N/A'}, SKU: {p.sku or 'N/A'})", 'name': p.name, 'barcode': p.barcode, 'sku': p.sku, 'selling_price': p.selling_price, 'purchase_price': p.purchase_price, 'stock_quantity': p.stock_quantity, 'discount_percent': p.discount_percent } for p in products ]
     return jsonify(results)
 
-
 # --- Barcode Sticker PDF Route ---
 @inventory_bp.route('/products/stickers/pdf', methods=['POST'])
 @login_required
 def download_sticker_pdf():
-    """Generates and downloads an A4 PDF with barcode stickers for selected products."""
-    product_ids_str = request.form.getlist('product_ids') # Get list of selected product IDs
-    if not product_ids_str:
-        flash('No products selected for sticker generation.', 'warning')
-        return redirect(url_for('inventory.list_products'))
-
+    product_ids_str = request.form.getlist('product_ids')
+    if not product_ids_str: flash('No products selected.', 'warning'); return redirect(url_for('inventory.list_products'))
     products_data_for_pdf = []
     try:
         for pid_str in product_ids_str:
             product_id = int(pid_str)
-            # Get the requested quantity for this product ID
-            # The input name is sticker_qty_<product_id>
-            quantity_str = request.form.get(f'sticker_qty_{product_id}')
-            try:
-                quantity = int(quantity_str) if quantity_str else 1 # Default to 1 if not provided or empty
-                if quantity < 1: quantity = 1 # Ensure at least 1 copy
-            except ValueError:
-                quantity = 1 # Default to 1 if quantity is not a valid number
-
+            quantity_str = request.form.get(f'sticker_qty_{product_id}'); quantity = int(quantity_str) if quantity_str else 1
+            if quantity < 1: quantity = 1
             product = Product.query.get(product_id)
             if product and product.barcode:
-                # Add the product object 'quantity' times to the list
-                for _ in range(quantity):
-                    products_data_for_pdf.append(product)
-            elif product and not product.barcode:
-                 flash(f'Product "{product.name}" was selected but has no barcode. Skipping.', 'info')
-            # If product not found, it's skipped implicitly
-
-    except ValueError:
-         flash('Invalid product selection or quantity.', 'danger')
-         return redirect(url_for('inventory.list_products'))
-
-    if not products_data_for_pdf:
-        flash('No valid products with barcodes selected or found for sticker generation.', 'warning')
-        return redirect(url_for('inventory.list_products'))
-
-    # Generate the PDF using the utility function
+                for _ in range(quantity): products_data_for_pdf.append(product)
+            elif product and not product.barcode: flash(f'Product "{product.name}" has no barcode.', 'info')
+    except ValueError: flash('Invalid product selection or quantity.', 'danger'); return redirect(url_for('inventory.list_products'))
+    if not products_data_for_pdf: flash('No valid products selected for stickers.', 'warning'); return redirect(url_for('inventory.list_products'))
     pdf_buffer = generate_barcode_sticker_pdf(products_data_for_pdf)
-
-    if pdf_buffer is None:
-        flash('Error generating barcode sticker PDF.', 'danger')
-        return redirect(url_for('inventory.list_products'))
-
-    # Create a Flask Response object
+    if pdf_buffer is None: flash('Error generating barcode sticker PDF.', 'danger'); return redirect(url_for('inventory.list_products'))
     response = Response(pdf_buffer.getvalue(), mimetype='application/pdf')
-    # Set headers to prompt download
     response.headers['Content-Disposition'] = f'attachment; filename=Barcode_Stickers_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
     return response
+
+# --- Stock Adjustment Routes ---
+@inventory_bp.route('/products/adjust/<int:product_id>', methods=['GET', 'POST'])
+@login_required
+def adjust_stock(product_id):
+    product = Product.query.get_or_404(product_id)
+    form = StockAdjustmentForm()
+    if form.validate_on_submit():
+        change = form.quantity_change.data; reason = form.reason.data; notes = form.notes.data
+        if product.stock_quantity + change < 0 and reason not in ['Initial Stock', 'Correction', 'Damage', 'Theft']:
+             flash(f'Adjustment would result in negative stock ({product.stock_quantity + change}). Please verify.', 'danger')
+        else:
+            try:
+                stock_before = product.stock_quantity; stock_after = stock_before + change
+                adjustment = StockAdjustment( product_id=product.id, user_id=current_user.id, quantity_change=change, reason=reason, notes=notes, stock_level_before=stock_before, stock_level_after=stock_after )
+                product.stock_quantity = stock_after
+                db.session.add(adjustment); db.session.commit()
+                flash(f'Stock for "{product.name}" adjusted by {change}. New stock: {stock_after}.', 'success')
+                return redirect(url_for('inventory.list_products'))
+            except Exception as e:
+                db.session.rollback(); current_app.logger.error(f"Error adjusting stock for product {product_id}: {e}")
+                flash(f'An error occurred while adjusting stock: {e}', 'danger')
+    form.product_id.data = product.id; form.product_name.data = product.name; form.current_stock.data = product.stock_quantity
+    if request.method == 'GET': form.quantity_change.data = None
+    return render_template('inventory/stock_adjustment_form.html', title=f'Adjust Stock - {product.name}', form=form, product=product)
+
+@inventory_bp.route('/stock/adjustments')
+@login_required
+def list_stock_adjustments():
+    page = request.args.get('page', 1, type=int)
+    adjustments_query = StockAdjustment.query.order_by(StockAdjustment.timestamp.desc())
+    pagination = adjustments_query.paginate( page=page, per_page=current_app.config.get('ITEMS_PER_PAGE', 20), error_out=False )
+    adjustments = pagination.items
+    return render_template('inventory/adjustments_history.html', title='Stock Adjustment History', adjustments=adjustments, pagination=pagination)
 
 # --- Bulk Stock Upload Route ---
 @inventory_bp.route('/stock/bulk-upload', methods=['GET', 'POST'])
 @login_required
 def bulk_upload_stock():
-    """Displays upload form and processes bulk stock update from Excel file."""
     if request.method == 'POST':
         if 'stock_file' not in request.files: flash('No file part in the request.', 'danger'); return redirect(request.url)
         file = request.files['stock_file']
@@ -268,18 +266,24 @@ def bulk_upload_stock():
                 elif 'SKU' in excel_data.columns: identifier_col = 'SKU'
                 elif 'ProductID' in excel_data.columns: identifier_col = 'ProductID'
                 if not identifier_col or required_qty_col not in excel_data.columns:
-                     flash(f'Excel file must contain columns "{required_qty_col}" and one of "Barcode", "SKU", or "ProductID".', 'danger')
+                     flash(f'Excel file must contain "{required_qty_col}" and one of "Barcode", "SKU", or "ProductID".', 'danger')
                      return redirect(request.url)
                 updated_count = 0; skipped_count = 0; errors = []
                 for index, row in excel_data.iterrows():
-                    identifier_value = row[identifier_col]; new_quantity = row[required_qty_col]
-                    if pd.isna(identifier_value) or pd.isna(new_quantity):
-                        skipped_count += 1; errors.append(f"Row {index+2}: Skipped due to missing identifier or quantity."); continue
+                    identifier_value = row[identifier_col]; new_quantity_val = row[required_qty_col] # Renamed to avoid conflict
+                    if pd.isna(identifier_value) or pd.isna(new_quantity_val):
+                        skipped_count += 1; errors.append(f"Row {index+2}: Skipped missing data."); continue
+                    
+                    # ** CORRECTED try-except block structure for quantity validation **
                     try:
-                        new_quantity = int(new_quantity)
-                        if new_quantity < 0: raise ValueError("Quantity cannot be negative.")
+                        new_quantity = int(new_quantity_val) # Use new_quantity_val here
+                        if new_quantity < 0:
+                            raise ValueError("Quantity cannot be negative.")
                     except (ValueError, TypeError):
-                        skipped_count += 1; errors.append(f"Row {index+2}: Invalid quantity '{row[required_qty_col]}'. Must be a whole number."); continue
+                        skipped_count += 1
+                        errors.append(f"Row {index+2}: Invalid quantity '{new_quantity_val}'. Must be a whole non-negative number.")
+                        continue
+                    
                     product = None
                     if identifier_col == 'Barcode': product = Product.query.filter_by(barcode=str(identifier_value)).first()
                     elif identifier_col == 'SKU': product = Product.query.filter_by(sku=str(identifier_value)).first()
@@ -288,95 +292,18 @@ def bulk_upload_stock():
                          except ValueError: product = None
                     if product:
                         stock_before = product.stock_quantity; change = new_quantity - stock_before
-                        adjustment = StockAdjustment( product_id=product.id, user_id=current_user.id, quantity_change=change, reason="Bulk Upload", notes=f"Uploaded via file: {filename}", stock_level_before=stock_before, stock_level_after=new_quantity )
+                        adjustment = StockAdjustment( product_id=product.id, user_id=current_user.id, quantity_change=change, reason="Bulk Upload", notes=f"File: {filename}", stock_level_before=stock_before, stock_level_after=new_quantity )
                         product.stock_quantity = new_quantity; db.session.add(adjustment); updated_count += 1
-                    else: skipped_count += 1; errors.append(f"Row {index+2}: Product with {identifier_col} '{identifier_value}' not found.")
+                    else: skipped_count += 1; errors.append(f"Row {index+2}: Product {identifier_col} '{identifier_value}' not found.")
                 db.session.commit()
-                flash(f'Bulk stock upload processed. Updated: {updated_count}, Skipped: {skipped_count}.', 'success')
+                flash(f'Bulk upload: Updated {updated_count}, Skipped {skipped_count}.', 'success')
                 if errors:
-                    flash('Some rows were skipped:', 'warning')
-                    for error in errors[:10]: flash(error, 'danger')
-                    if len(errors) > 10: flash(f"... and {len(errors)-10} more errors.", 'warning')
+                    flash('Details for skipped rows:', 'warning')
+                    for error_msg in errors[:10]: flash(error_msg, 'info') # Changed category for individual errors
+                    if len(errors) > 10: flash(f"... and {len(errors)-10} more errors.", 'info')
                 return redirect(url_for('inventory.list_products'))
             except Exception as e:
-                db.session.rollback(); current_app.logger.error(f"Error processing bulk upload file {filename}: {e}")
+                db.session.rollback(); current_app.logger.error(f"Error processing bulk upload {filename}: {e}")
                 flash(f'Error processing file: {e}', 'danger'); return redirect(request.url)
-        else: flash('Invalid file type. Please upload .xlsx or .xls files.', 'danger'); return redirect(request.url)
+        else: flash('Invalid file type. Only .xlsx or .xls allowed.', 'danger'); return redirect(request.url)
     return render_template('inventory/bulk_upload_stock.html', title='Bulk Stock Upload')
-# Add routes for viewing adjustment history later if needed
-# --- Stock Adjustment Routes ---
-@inventory_bp.route('/products/adjust/<int:product_id>', methods=['GET', 'POST'])
-@login_required
-def adjust_stock(product_id):
-    """Displays and processes the stock adjustment form for a product."""
-    product = Product.query.get_or_404(product_id)
-    form = StockAdjustmentForm()
-
-    if form.validate_on_submit():
-        # Form is valid, process the adjustment
-        change = form.quantity_change.data
-        reason = form.reason.data
-        notes = form.notes.data
-
-        # Optional: Validate again if stock would go excessively negative
-        # (though the form has a basic check, this is a server-side confirmation)
-        if product.stock_quantity + change < 0 and reason not in ['Initial Stock', 'Correction']: # Allow negative only for specific reasons if desired
-             flash(f'Adjustment would result in negative stock ({product.stock_quantity + change}). Please verify.', 'danger')
-        else:
-            try:
-                stock_before = product.stock_quantity
-                stock_after = stock_before + change
-
-                adjustment = StockAdjustment(
-                    product_id=product.id,
-                    user_id=current_user.id,
-                    quantity_change=change,
-                    reason=reason,
-                    notes=notes,
-                    stock_level_before=stock_before,
-                    stock_level_after=stock_after
-                )
-                # Update product stock
-                product.stock_quantity = stock_after
-
-                db.session.add(adjustment)
-                # db.session.add(product) # Product is already in session, changes will be picked up
-                db.session.commit()
-
-                flash(f'Stock for "{product.name}" adjusted by {change}. New stock: {stock_after}.', 'success')
-                return redirect(url_for('inventory.list_products'))
-
-            except Exception as e:
-                db.session.rollback()
-                current_app.logger.error(f"Error adjusting stock for product {product_id}: {e}")
-                flash(f'An error occurred while adjusting stock: {e}', 'danger')
-
-    # --- Handle GET Request or Failed Validation ---
-    # Pre-fill form fields for GET request
-    form.product_id.data = product.id # Set the hidden product_id field
-    form.product_name.data = product.name
-    form.current_stock.data = product.stock_quantity
-    # Set a default value for quantity_change to empty or 0 for clarity on GET
-    if request.method == 'GET':
-        form.quantity_change.data = None # Or 0, or '' depending on desired placeholder behavior
-
-    return render_template('inventory/stock_adjustment_form.html',
-                           title=f'Adjust Stock - {product.name}',
-                           form=form, product=product)
-
-# --- Route to list stock adjustments (Optional) ---
-@inventory_bp.route('/stock/adjustments')
-@login_required
-def list_stock_adjustments():
-    """Displays a history of stock adjustments."""
-    page = request.args.get('page', 1, type=int)
-    adjustments_query = StockAdjustment.query.order_by(StockAdjustment.timestamp.desc())
-    # Add filtering by product or user later if needed
-    pagination = adjustments_query.paginate(
-        page=page, per_page=current_app.config.get('ITEMS_PER_PAGE', 20), error_out=False
-    )
-    adjustments = pagination.items
-    return render_template('inventory/adjustments_history.html',
-                           title='Stock Adjustment History',
-                           adjustments=adjustments,
-                           pagination=pagination)

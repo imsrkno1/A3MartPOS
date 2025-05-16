@@ -110,11 +110,9 @@ def process_sale():
                  db.session.rollback()
                  raise ValueError(f"Stock level discrepancy for {update['product'].name} during final save.")
 
-        db.session.commit()
-
-        # --- Success Response (Original Version) ---
+        # --- Success Response ---
         receipt_items = []
-        for item in new_sale.items:
+        for item in new_sale.items: # Access items after commit
              item_total_before_discount = item.quantity * item.price_at_sale
              discount_percent = 0.0
              if item_total_before_discount > 0 and item.discount_applied > 0:
@@ -122,12 +120,13 @@ def process_sale():
              receipt_items.append({
                 'name': item.product.name,
                 'quantity': item.quantity,
-                'price': "%.2f" % item.price_at_sale,
+                'price': "%.2f" % item.price_at_sale, # This is the MRP (price per unit)
                 'item_total_before_discount': "%.2f" % item_total_before_discount,
                 'discount_percent': "%.2f" % discount_percent,
                 'discount_amount': "%.2f" % item.discount_applied,
-                'net_amount': "%.2f" % (item_total_before_discount - item.discount_applied)
+                'net_amount': "%.2f" % (item_total_before_discount - item.discount_applied) # Net amount for the line
              })
+
         receipt_data = {
             'sale_id': new_sale.id,
             'timestamp': new_sale.sale_timestamp.isoformat(),
@@ -136,6 +135,7 @@ def process_sale():
             'total': "%.2f" % new_sale.final_amount,
             'payment_method': new_sale.payment_method,
             'customer_name': new_sale.customer.name if new_sale.customer else None,
+            'customer_phone': new_sale.customer.phone_number if new_sale.customer else None, # <<<--- THIS LINE IS CRUCIAL
             'items': receipt_items
         }
 

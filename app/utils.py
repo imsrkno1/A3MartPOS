@@ -64,52 +64,78 @@ def generate_barcode_logic():
 def generate_thermal_receipt(sale_data):
     """
     Generates content suitable for a 58mm thermal printer receipt.
+    Single-line format for items: Item Name (trunc) | Qty | MRP | Disc % | Net Amt
     Input: sale_data dictionary (e.g., from process_sale route)
     Returns: A formatted string suitable for plain text printing.
     """
-    receipt_width = 32
+    receipt_width = 32 # Standard for 58mm paper, may need adjustment for font
     separator = "-" * receipt_width
     receipt_lines = []
+
+    # Header
     receipt_lines.append("A3 Mart".center(receipt_width))
-    receipt_lines.append("Near KRPL, Anora Kala,Lucknow-226028".center(receipt_width))
+    receipt_lines.append("Near KRPL, Anora Kala".center(receipt_width))
+    receipt_lines.append("Lucknow - 226028".center(receipt_width))
+    receipt_lines.append("Ph: 8931869849".center(receipt_width))
     receipt_lines.append(separator)
-    receipt_lines.append(f"Sale ID: {sale_data.get('sale_id', 'N/A')}")
+
+    # Sale Info
+    receipt_lines.append(f"Sale ID : {sale_data.get('sale_id', 'N/A')}")
     try:
         timestamp_str = sale_data.get('timestamp')
         if timestamp_str:
             dt_object = datetime.fromisoformat(timestamp_str)
-            receipt_lines.append(f"Date: {dt_object.strftime('%d/%m/%y %H:%M:%S')}")
+            receipt_lines.append(f"Date    : {dt_object.strftime('%d/%m/%y %H:%M:%S')}")
         else:
-            receipt_lines.append("Date: N/A")
+            receipt_lines.append("Date    : N/A")
     except (ValueError, TypeError):
-         receipt_lines.append("Date: Invalid Format")
+         receipt_lines.append("Date    : Invalid Format")
+
     if sale_data.get('customer_name'):
         receipt_lines.append(f"Customer: {sale_data['customer_name']}")
     receipt_lines.append(separator)
-    # Items Header (Original Simple Version)
-    receipt_lines.append("{:<16} {:>4} {:>9}".format("Item", "Qty", "Total"))
+
+    # Items Header - Single Line
+    # Col widths: Name(10) Qty(3) MRP(5) D%(4) Net(6) + Spaces(4) = 32
+    # Example: ProdName..  99 99.99 10% 999.99
+    name_h, qty_h, mrp_h, disc_h, net_h = "Item", "Qty", "MRP", "D%", "Net"
+    receipt_lines.append(f"{name_h:<10} {qty_h:>3} {mrp_h:>5} {disc_h:>4} {net_h:>6}")
     receipt_lines.append(separator)
+
+    # Items Loop - Single Line
     items = sale_data.get('items', [])
     for item in items:
-         name = (item['name'][:15] + '..') if len(item['name']) > 17 else item['name']
-         qty = str(item['quantity'])
-         # Use net_amount for the line item total on receipt
-         total = item['net_amount']
-         receipt_lines.append("{:<16} {:>4} {:>9}".format(name, qty, total))
-         # Optionally show discount below item if applied
-         if float(item.get('discount_percent', 0)) > 0:
-              receipt_lines.append(f"  (Disc: {item['discount_percent']}% -₹{item['discount_amount']})")
+        # Truncate item name
+        name = (item['name'][:9] + '.') if len(item['name']) > 10 else item['name']
+        qty = str(item['quantity'])
+        mrp = item['price'] # Unit Price (MRP)
+        disc_perc_val = float(item.get('discount_percent', 0))
+        disc_perc_str = f"{int(disc_perc_val)}%" # Format as X% (integer)
+        net_amt = item['net_amount'] # Net amount for the line
 
+        # Format: Name(10) Qty(3) MRP(5) D%(4) Net(6)
+        # Ensure values fit their allocated space, especially MRP and Net
+        # For example, if MRP or Net can be > 999.9 or 999.99, widths need adjustment
+        mrp_str = mrp[:5] if len(mrp) > 5 else mrp # Truncate if needed, though usually not for price
+        net_str = net_amt[:6] if len(net_amt) > 6 else net_amt
+
+        receipt_lines.append(f"{name:<10} {qty:>3} {mrp_str:>5} {disc_perc_str:>4} {net_str:>6}")
+
+    # Totals Section
     receipt_lines.append(separator)
     receipt_lines.append("{:>21} {:>10}".format("Subtotal:", sale_data.get('subtotal', '0.00')))
     receipt_lines.append("{:>21} {:>10}".format("Discount:", "-" + sale_data.get('discount', '0.00')))
+    receipt_lines.append(separator)
     receipt_lines.append("{:>21} {:>10}".format("TOTAL:", sale_data.get('total', '0.00')))
     receipt_lines.append(separator)
+
+    # Payment & Footer
     receipt_lines.append(f"Paid by: {sale_data.get('payment_method', 'N/A')}")
     receipt_lines.append(separator)
     receipt_lines.append("Thank You!".center(receipt_width))
     receipt_lines.append("Visit Again!".center(receipt_width))
-    receipt_lines.append("\n\n\n")
+    receipt_lines.append("\n\n\n") # Add some blank lines at the end
+
     return "\n".join(receipt_lines)
 
 
@@ -121,18 +147,13 @@ def generate_a4_invoice_pdf(sale_data):
     """
     buffer = io.BytesIO()
     try:
-        # --- PDF Setup ---
         doc = SimpleDocTemplate(buffer, pagesize=A4,
                                 leftMargin=0.75*inch, rightMargin=0.75*inch,
                                 topMargin=0.75*inch, bottomMargin=0.75*inch)
         styles = getSampleStyleSheet()
-        # Add a right-aligned style for summary table
         styles.add(ParagraphStyle(name='RightAlign', parent=styles['Normal'], alignment=TA_RIGHT))
         styles.add(ParagraphStyle(name='RightAlignBold', parent=styles['h6'], alignment=TA_RIGHT))
-
         story = []
-
-        # --- Header ---
         story.append(Paragraph("INVOICE", styles['h1']))
         story.append(Spacer(1, 0.2*inch))
         store_details = [
@@ -143,91 +164,59 @@ def generate_a4_invoice_pdf(sale_data):
         ]
         story.extend(store_details)
         story.append(Spacer(1, 0.2*inch))
-
-        # --- Sale & Customer Details ---
-        sale_details = []
-        sale_details.append(Paragraph(f"<b>Invoice #:</b> {sale_data.get('sale_id', 'N/A')}", styles['Normal']))
+        sale_details_data = []
+        sale_details_data.append(Paragraph(f"<b>Invoice #:</b> {sale_data.get('sale_id', 'N/A')}", styles['Normal']))
         try:
             timestamp_str = sale_data.get('timestamp')
             if timestamp_str:
                 dt_object = datetime.fromisoformat(timestamp_str)
-                sale_details.append(Paragraph(f"<b>Date:</b> {dt_object.strftime('%d-%b-%Y %H:%M:%S')}", styles['Normal']))
+                sale_details_data.append(Paragraph(f"<b>Date:</b> {dt_object.strftime('%d-%b-%Y %H:%M:%S')}", styles['Normal']))
             else:
-                 sale_details.append(Paragraph("<b>Date:</b> N/A", styles['Normal']))
+                 sale_details_data.append(Paragraph("<b>Date:</b> N/A", styles['Normal']))
         except (ValueError, TypeError):
-             sale_details.append(Paragraph("<b>Date:</b> Invalid Format", styles['Normal']))
+             sale_details_data.append(Paragraph("<b>Date:</b> Invalid Format", styles['Normal']))
         if sale_data.get('customer_name'):
-             sale_details.append(Paragraph(f"<b>Bill To:</b> {sale_data['customer_name']}", styles['Normal']))
-        story.extend(sale_details)
+             sale_details_data.append(Paragraph(f"<b>Bill To:</b> {sale_data['customer_name']}", styles['Normal']))
+        story.extend(sale_details_data)
         story.append(Spacer(1, 0.3*inch))
-
-        # --- Items Table ---
-        # Header row
         table_header = ['#', 'Item Description', 'Qty', 'Unit Price (₹)', 'Disc %', 'Net Amount (₹)']
         table_data = [table_header]
-        # Add item rows
         items = sale_data.get('items', [])
         for i, item in enumerate(items):
             table_data.append([
-                str(i+1),
-                Paragraph(item['name'], styles['Normal']), # Use Paragraph for wrapping
-                str(item['quantity']),
-                item['price'], # Unit Price (MRP)
-                item['discount_percent'] + "%", # Discount Percentage
-                item['net_amount'] # Net Amount for the line
+                str(i+1), Paragraph(item['name'], styles['Normal']), str(item['quantity']),
+                item['price'], item['discount_percent'] + "%", item['net_amount']
             ])
-        # Define column widths (adjust as needed, ensure they sum up correctly)
         col_widths = [0.4*inch, 3.0*inch, 0.6*inch, 1.0*inch, 0.8*inch, 1.2*inch]
-        # Create table style
         table_style = TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.darkblue),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-            ('ALIGN', (0,0), (-1,0), 'CENTER'),
-            ('VALIGN', (0,0), (-1,0), 'MIDDLE'),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('BOTTOMPADDING', (0,0), (-1,0), 10),
-            ('GRID', (0,0), (-1,-1), 1, colors.black),
-            ('ALIGN', (2,1), (-1,-1), 'RIGHT'), # Align numeric columns right
-            ('VALIGN', (0,1), (-1,-1), 'TOP'),
-            ('LEFTPADDING', (0,0), (-1,-1), 4),
-            ('RIGHTPADDING', (0,0), (-1,-1), 4),
+            ('BACKGROUND', (0,0), (-1,0), colors.darkblue),('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,0), 'CENTER'),('VALIGN', (0,0), (-1,0), 'MIDDLE'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),('BOTTOMPADDING', (0,0), (-1,0), 10),
+            ('GRID', (0,0), (-1,-1), 1, colors.black), ('ALIGN', (2,1), (-1,-1), 'RIGHT'),
+            ('VALIGN', (0,1), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 4), ('RIGHTPADDING', (0,0), (-1,-1), 4),
         ])
         items_table = Table(table_data, colWidths=col_widths, style=table_style)
         story.append(items_table)
         story.append(Spacer(1, 0.1*inch))
-
-        # --- Totals Section ---
         summary_data = [
             ['Subtotal:', f"₹{sale_data.get('subtotal', '0.00')}"],
             ['Discount:', f"- ₹{sale_data.get('discount', '0.00')}"],
             [Paragraph('<b>TOTAL:</b>', styles['RightAlignBold']), Paragraph(f"<b>₹{sale_data.get('total', '0.00')}</b>", styles['RightAlignBold'])]
         ]
         summary_table_style = TableStyle([
-            ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-            ('TEXTCOLOR', (0,1), (0,1), colors.red), # Red discount label
-            ('TEXTCOLOR', (1,1), (1,1), colors.red), # Red discount value
-            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('ALIGN', (0,0), (-1,-1), 'RIGHT'), ('LEFTPADDING', (0,0), (-1,-1), 0), ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TEXTCOLOR', (0,1), (0,1), colors.red), ('TEXTCOLOR', (1,1), (1,1), colors.red),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2), ('TOPPADDING', (0,0), (-1,-1), 2),
         ])
-        # Use specific widths to align with the main table's right side
         summary_table = Table(summary_data, colWidths=[5.8*inch, 1.2*inch], style=summary_table_style)
         story.append(summary_table)
         story.append(Spacer(1, 0.2*inch))
-
-        # --- Payment Method ---
         story.append(Paragraph(f"<b>Payment Method:</b> {sale_data.get('payment_method', 'N/A')}", styles['Normal']))
         story.append(Spacer(1, 0.5*inch))
-
-        # --- Footer ---
         story.append(Paragraph("Thank you for your business!", styles['Normal']))
-
-        # --- Build the PDF ---
         doc.build(story)
         buffer.seek(0)
         return buffer
-
     except Exception as e:
          current_app.logger.error(f"Error generating PDF invoice: {e}")
          return None
@@ -238,14 +227,11 @@ class BarcodeSticker(Flowable):
     """ReportLab Flowable to draw a single barcode sticker."""
     def __init__(self, product_name, barcode_value, width, height):
         Flowable.__init__(self)
-        self.product_name = product_name
-        self.barcode_value = barcode_value
-        self.width = width
-        self.height = height
+        self.product_name = product_name; self.barcode_value = barcode_value
+        self.width = width; self.height = height
         self.barcode_image = self._generate_barcode_image()
 
     def _generate_barcode_image(self):
-        """Generates barcode image in memory."""
         if not self.barcode_value: return None
         try:
             code128 = Code128(self.barcode_value, writer=ImageWriter())

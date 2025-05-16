@@ -3,113 +3,186 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}{{ app_name }}{% endblock %}</title>
+    <title>{% block title %}{{ app_name or "A3 Mart POS" }}{% endblock %}</title>
 
-    {# Using Tailwind Play CDN for development ease #}
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dist/output.css') }}">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-    {# Alpine JS CDN Script #}
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
     <style>
-        /* Apply Inter font globally */
-        body { font-family: 'Inter', sans-serif; }
-        [x-cloak] { display: none !important; } /* Hide Alpine elements until initialized */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f7f6; /* Slightly off-white for a softer background */
+        }
+        [x-cloak] { display: none !important; }
 
-        /* Styles for custom notifications */
+        /* Custom Scrollbar (Optional, but adds to modern feel) */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px;}
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px;}
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Notification Area Styles */
         #notification-area {
             position: fixed;
-            top: 1.25rem; /* 20px */
-            right: 1.25rem; /* 20px */
+            top: 1.5rem; /* 24px */
+            right: 1.5rem; /* 24px */
             z-index: 9999;
             display: flex;
             flex-direction: column;
             gap: 0.75rem; /* 12px */
+            max-width: 360px;
         }
         .notification {
             padding: 1rem; /* 16px */
-            border-radius: 0.375rem; /* 6px */
+            border-radius: 0.5rem; /* 8px */
             color: white;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            opacity: 0; /* Start hidden for transition */
+            transform: translateX(100%);
+            transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+            display: flex;
+            align-items: center;
+        }
+        .notification.show {
             opacity: 1;
-            transition: opacity 0.5s ease-out, transform 0.5s ease-out;
             transform: translateX(0);
-            min-width: 250px; /* Minimum width */
-            max-width: 350px; /* Maximum width */
         }
-        .notification.hide {
-            opacity: 0;
-            transform: translateX(100%); /* Slide out to the right */
-        }
-        .notification-success { background-color: #34D399; /* Tailwind green-500 */ }
+        .notification-icon { margin-right: 0.75rem; }
+        .notification-success { background-color: #10B981; /* Tailwind emerald-500 */ }
         .notification-danger { background-color: #EF4444; /* Tailwind red-500 */ }
-        .notification-warning { background-color: #F59E0B; /* Tailwind yellow-500 */ }
+        .notification-warning { background-color: #F59E0B; /* Tailwind amber-500 */ }
         .notification-info { background-color: #3B82F6; /* Tailwind blue-500 */ }
+
+        /* Improved Dropdown Styling */
+        .nav-dropdown-menu {
+            min-width: 12rem; /* 192px */
+            border: 1px solid #e5e7eb; /* gray-200 */
+        }
+        .nav-dropdown-menu a {
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+        }
+        .nav-dropdown-menu a:hover {
+            background-color: #eff6ff; /* blue-50 */
+            color: #2563eb; /* blue-600 */
+        }
+
     </style>
     <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
-<body class="bg-gray-100 text-gray-900 min-h-screen flex flex-col">
+<body class="antialiased text-slate-700">
 
     <div id="notification-area"></div>
 
-    <nav class="bg-blue-600 text-white shadow-md sticky top-0 z-50">
-        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
-            {# ** MODIFIED: Logo IMG Tag Removed ** #}
-            <a href="{{ url_for('main.dashboard') }}" class="flex items-center text-xl font-bold">
-                 <span>{{ app_name }}</span>
-            </a>
-            <div class="flex items-center space-x-1">
-                {% if current_user.is_authenticated %}
-                    <a href="{{ url_for('main.dashboard') }}" class="px-3 py-2 rounded hover:bg-blue-700">Dashboard</a>
-                    <a href="{{ url_for('billing.billing_page') }}" class="px-3 py-2 rounded hover:bg-blue-700">Billing</a>
-                    <div x-data="{ open: false }" @click.outside="open = false" class="relative">
-                        <button @click="open = !open" class="flex items-center px-3 py-2 rounded hover:bg-blue-700 focus:outline-none"> Inventory
-                            <svg class="w-4 h-4 ml-1 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
-                        </button>
-                        <div x-show="open" x-cloak x-transition class="absolute left-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 text-gray-700">
-                            <a href="{{ url_for('inventory.list_products') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Products</a>
-                            <a href="{{ url_for('inventory.list_purchases') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Purchases</a>
-                            <a href="{{ url_for('inventory.bulk_upload_stock') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Bulk Stock Upload</a>
+    <nav class="bg-gradient-to-r from-slate-800 to-slate-900 text-slate-100 shadow-lg sticky top-0 z-50">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center">
+                    {# ** MODIFIED: Logo IMG Tag Removed ** #}
+                    <a href="{{ url_for('main.dashboard') }}" class="flex items-center text-2xl font-bold tracking-tight">
+                         <span>{{ app_name or "A3 Mart POS" }}</span>
+                    </a>
+                </div>
+                <div class="hidden md:flex items-center space-x-2">
+                    {% if current_user.is_authenticated %}
+                        <a href="{{ url_for('main.dashboard') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-700 transition-colors">Dashboard</a>
+                        <a href="{{ url_for('billing.billing_page') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-700 transition-colors">Billing</a>
+                        
+                        <div x-data="{ open: false }" @click.outside="open = false" class="relative">
+                            <button @click="open = !open" class="flex items-center px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-700 focus:outline-none transition-colors">
+                                Inventory
+                                <svg class="w-4 h-4 ml-1 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                            </button>
+                            <div x-show="open" x-cloak x-transition class="nav-dropdown-menu absolute left-0 mt-2 bg-white rounded-md shadow-xl py-1 z-50 text-slate-700">
+                                <a href="{{ url_for('inventory.list_products') }}" class="block px-4 py-2 text-sm">Products</a>
+                                <a href="{{ url_for('inventory.list_purchases') }}" class="block px-4 py-2 text-sm">Purchases</a>
+                                <a href="{{ url_for('inventory.bulk_upload_stock') }}" class="block px-4 py-2 text-sm">Bulk Stock Upload</a>
+                            </div>
                         </div>
-                    </div>
-                    <a href="{{ url_for('customers.list_customers') }}" class="px-3 py-2 rounded hover:bg-blue-700">Customers</a>
-                    <a href="{{ url_for('billing.list_sales') }}" class="px-3 py-2 rounded hover:bg-blue-700">Sales</a>
-                    <div x-data="{ open: false }" @click.outside="open = false" class="relative">
-                        <button @click="open = !open" class="flex items-center px-3 py-2 rounded hover:bg-blue-700 focus:outline-none"> Reports
-                            <svg class="w-4 h-4 ml-1 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
-                        </button>
-                        <div x-show="open" x-cloak x-transition class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 text-gray-700">
-                            <a href="{{ url_for('main.sales_by_date_report') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Sales by Date</a>
-                            <a href="{{ url_for('main.monthly_sales_report') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Monthly Sales</a>
-                            <a href="{{ url_for('main.product_sales_report') }}" class="block px-4 py-2 text-sm hover:bg-gray-100">Product Sales</a>
+                        <a href="{{ url_for('customers.list_customers') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-700 transition-colors">Customers</a>
+                        <a href="{{ url_for('billing.list_sales') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-700 transition-colors">Sales</a>
+                        
+                        <div x-data="{ open: false }" @click.outside="open = false" class="relative">
+                            <button @click="open = !open" class="flex items-center px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-700 focus:outline-none transition-colors">
+                                Reports
+                                <svg class="w-4 h-4 ml-1 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                            </button>
+                            <div x-show="open" x-cloak x-transition class="nav-dropdown-menu absolute right-0 mt-2 bg-white rounded-md shadow-xl py-1 z-50 text-slate-700">
+                                <a href="{{ url_for('main.sales_by_date_report') }}" class="block px-4 py-2 text-sm">Sales by Date</a>
+                                <a href="{{ url_for('main.monthly_sales_report') }}" class="block px-4 py-2 text-sm">Monthly Sales</a>
+                                <a href="{{ url_for('main.product_sales_report') }}" class="block px-4 py-2 text-sm">Product Sales</a>
+                            </div>
                         </div>
-                    </div>
-                    <span class="px-3 py-2 text-blue-200">| Hi, {{ current_user.username }}!</span>
-                    <a href="{{ url_for('auth.logout') }}" class="px-3 py-2 rounded hover:bg-red-600 bg-red-500 ml-2">Logout</a>
+                        <span class="px-3 py-2 text-slate-400 text-sm">|</span>
+                        <span class="px-3 py-2 text-sm font-medium text-slate-300">Hi, {{ current_user.username }}!</span>
+                        <a href="{{ url_for('auth.logout') }}" class="px-3 py-2 rounded-md text-sm font-medium bg-red-600 hover:bg-red-700 transition-colors">Logout</a>
+                    {% else %}
+                        <a href="{{ url_for('auth.login') }}" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-700 transition-colors">Login</a>
+                    {% endif %}
+                </div>
+                <div class="md:hidden flex items-center">
+                    <button id="mobile-menu-button" type="button" class="inline-flex items-center justify-center p-2 rounded-md text-slate-300 hover:text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white" aria-controls="mobile-menu" aria-expanded="false">
+                        <span class="sr-only">Open main menu</span>
+                        <svg class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                        <svg class="hidden h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="md:hidden hidden" id="mobile-menu">
+            <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+                 {% if current_user.is_authenticated %}
+                    <a href="{{ url_for('main.dashboard') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Dashboard</a>
+                    <a href="{{ url_for('billing.billing_page') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Billing</a>
+                    <a href="{{ url_for('inventory.list_products') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Products</a>
+                    <a href="{{ url_for('inventory.list_purchases') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Purchases</a>
+                    <a href="{{ url_for('customers.list_customers') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Customers</a>
+                    <a href="{{ url_for('billing.list_sales') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Sales</a>
+                    <a href="{{ url_for('main.sales_by_date_report') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Sales by Date Report</a>
+                    <a href="{{ url_for('main.monthly_sales_report') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Monthly Sales Report</a>
+                    <a href="{{ url_for('main.product_sales_report') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Product Sales Report</a>
+                    <div class="border-t border-slate-700 my-2"></div>
+                    <span class="block px-3 py-2 text-base font-medium text-slate-300">Hi, {{ current_user.username }}!</span>
+                    <a href="{{ url_for('auth.logout') }}" class="block px-3 py-2 rounded-md text-base font-medium bg-red-600 hover:bg-red-700 transition-colors">Logout</a>
                 {% else %}
-                    <a href="{{ url_for('auth.login') }}" class="px-3 py-2 rounded hover:bg-blue-700">Login</a>
+                    <a href="{{ url_for('auth.login') }}" class="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700 transition-colors">Login</a>
                 {% endif %}
             </div>
         </div>
     </nav>
 
-    <main class="flex-grow container mx-auto px-4 py-8">
+    <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {# Flask flashed messages will still work and appear here #}
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                <div class="mb-4 space-y-2">
+                <div class="mb-6 space-y-3"> {# Increased bottom margin #}
                     {% for category, message in messages %}
                         {% set category_class = 'bg-blue-100 border-blue-500 text-blue-700' %}
                         {% if category == 'success' %}{% set category_class = 'bg-green-100 border-green-500 text-green-700' %}{% endif %}
                         {% if category == 'warning' %}{% set category_class = 'bg-yellow-100 border-yellow-500 text-yellow-700' %}{% endif %}
                         {% if category == 'danger' %}{% set category_class = 'bg-red-100 border-red-500 text-red-700' %}{% endif %}
-                        <div class="border-l-4 p-4 rounded-md {{ category_class }}" role="alert"><p>{{ message }}</p></div>
+                        <div class="border-l-4 p-4 rounded-md {{ category_class }} shadow" role="alert"> {# Added shadow #}
+                            <div class="flex">
+                                <div class="py-1">
+                                    {# Simple icon placeholder based on category #}
+                                    {% if category == 'success' %}<svg class="fill-current h-6 w-6 text-green-500 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M2.93 17.07A10 10 0 1 1 17.07 2.93 10 10 0 0 1 2.93 17.07zm12.73-1.41A8 8 0 1 0 4.34 4.34a8 8 0 0 0 11.32 11.32zM6.7 9.29L9 11.6l4.3-4.3 1.4 1.42L9 14.4l-3.7-3.7 1.4-1.42z"/></svg>
+                                    {% elif category == 'danger' %}<svg class="fill-current h-6 w-6 text-red-500 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M2.93 17.07A10 10 0 1 1 17.07 2.93 10 10 0 0 1 2.93 17.07zm12.73-1.41A8 8 0 1 0 4.34 4.34a8 8 0 0 0 11.32 11.32zM9 11V9h2v6H9v-4zm0-6h2v2H9V5z"/></svg>
+                                    {% elif category == 'warning' %}<svg class="fill-current h-6 w-6 text-yellow-500 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M2.93 17.07A10 10 0 1 1 17.07 2.93 10 10 0 0 1 2.93 17.07zm12.73-1.41A8 8 0 1 0 4.34 4.34a8 8 0 0 0 11.32 11.32zM9 5v6h2V5H9zm0 8h2v2H9v-2z"/></svg>
+                                    {% else %}<svg class="fill-current h-6 w-6 text-blue-500 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M2.93 17.07A10 10 0 1 1 17.07 2.93 10 10 0 0 1 2.93 17.07zm12.73-1.41A8 8 0 1 0 4.34 4.34a8 8 0 0 0 11.32 11.32zM9 11V9h2v6H9v-4zm0-6h2v2H9V5z"/></svg>
+                                    {% endif %}
+                                </div>
+                                <div><p class="font-medium">{{ message }}</p></div>
+                            </div>
+                        </div>
                     {% endfor %}
                 </div>
             {% endif %}
@@ -117,15 +190,14 @@
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="bg-gray-800 text-gray-400 text-center py-6 mt-auto"> {# Increased padding #}
+    <footer class="bg-slate-800 text-slate-400 text-center py-8 mt-auto">
         <div class="container mx-auto px-4 text-sm">
             <p class="mb-2">
-                &copy; {{ now().year }} <strong>ShubhTech Labs</strong> ({{ app_name }}). All rights reserved.
+                &copy; {{ now().year }} <strong>ShubhTech Labs</strong> ({{ app_name or "A3 Mart POS" }}). All rights reserved.
             </p>
             <p class="text-xs">
-                Contact: <a href="mailto:shubham@example.com" class="hover:text-gray-200">mail.shubham4u@gmail.com</a> | Phone: +91 7703997019
+                Contact: <a href="mailto:shubham@example.com" class="hover:text-slate-200 transition-colors">shubham@example.com</a> | Phone: +91 98XXXXXX00
             </p>
-            {# <p class="text-xs mt-1">Papnamau, Lucknow</p> #}
         </div>
     </footer>
 
@@ -137,15 +209,37 @@
             const notificationArea = document.getElementById('notification-area');
             if (!notificationArea) { console.warn('Notification area #notification-area not found. Falling back to alert.'); alert(message); return; }
             const notifDiv = document.createElement('div');
-            notifDiv.textContent = message;
+            const iconSpan = document.createElement('span');
+            iconSpan.classList.add('notification-icon', 'mr-3'); // Added mr-3 for spacing
+
+            let iconSvg = '';
+            if (type === 'success') {
+                iconSvg = '<svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>';
+                notifDiv.classList.add('notification-success');
+            } else if (type === 'danger') {
+                iconSvg = '<svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>';
+                notifDiv.classList.add('notification-danger');
+            } else if (type === 'warning') {
+                iconSvg = '<svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 3.001-1.742 3.001H4.42c-1.53 0-2.493-1.667-1.743-3.001l5.58-9.92zM10 12a1 1 0 110-2 1 1 0 010 2zm0-4a1 1 0 011 1v2a1 1 0 11-2 0V9a1 1 0 011-1z" clip-rule="evenodd" /></svg>';
+                notifDiv.classList.add('notification-warning');
+            } else { // info
+                iconSvg = '<svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>';
+                notifDiv.classList.add('notification-info');
+            }
+            iconSpan.innerHTML = iconSvg;
+            notifDiv.appendChild(iconSpan);
+
+            const messageSpan = document.createElement('span');
+            messageSpan.textContent = message;
+            notifDiv.appendChild(messageSpan);
+
             notifDiv.classList.add('notification');
-            if (type === 'success') notifDiv.classList.add('notification-success');
-            else if (type === 'danger') notifDiv.classList.add('notification-danger');
-            else if (type === 'warning') notifDiv.classList.add('notification-warning');
-            else notifDiv.classList.add('notification-info');
             notificationArea.appendChild(notifDiv);
-            setTimeout(() => { notifDiv.style.opacity = '1'; notifDiv.style.transform = 'translateX(0)'; }, 10);
-            setTimeout(() => { notifDiv.classList.add('hide'); notifDiv.addEventListener('transitionend', () => { notifDiv.remove(); }); }, 4000);
+            setTimeout(() => { notifDiv.classList.add('show'); }, 10);
+            setTimeout(() => {
+                notifDiv.classList.remove('show');
+                notifDiv.addEventListener('transitionend', () => { notifDiv.remove(); });
+            }, 4000);
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -162,6 +256,17 @@
                     }
                 } catch (e) {}
             });
+
+            // Mobile menu toggle
+            const mobileMenuButton = document.getElementById('mobile-menu-button');
+            const mobileMenu = document.getElementById('mobile-menu');
+            if (mobileMenuButton && mobileMenu) {
+                mobileMenuButton.addEventListener('click', () => {
+                    mobileMenu.classList.toggle('hidden');
+                    // Toggle icons (optional)
+                    mobileMenuButton.querySelectorAll('svg').forEach(icon => icon.classList.toggle('hidden'));
+                });
+            }
         });
     </script>
     {% endblock %}

@@ -1,0 +1,13 @@
+{
+  "name": "a3martpos",
+  "version": "1.0.0",
+  "description": "A3 Mart POS System",
+  "scripts": {
+    "build:css": "npx tailwindcss -i ./app/static/css/src/input.css -o ./app/static/css/dist/output.css --minify"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3"
+  }
+}
